@@ -25,7 +25,7 @@ For each person in the config:
 1. Copy the example files and edit them:
 
 ```bash
-cp config.example.yaml config.yaml
+cp config.yaml.example config.yaml
 cp Dockerfile.example Dockerfile
 cp docker-compose.yaml.example docker-compose.yaml
 # Edit config.yaml with your APs, people, and MAC addresses
@@ -50,7 +50,7 @@ The `.example` files are tracked by git; `config.yaml`, `Dockerfile`, and `docke
 
 ## Configuration
 
-See [`config.example.yaml`](config.example.yaml) for a full example.
+See [`config.yaml.example`](config.yaml.example) for a full example.
 
 ### Source adapters
 
