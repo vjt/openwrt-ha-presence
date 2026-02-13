@@ -4,7 +4,7 @@ WiFi-based presence detection for Home Assistant using OpenWrt APs.
 
 Parses hostapd `AP-STA-CONNECTED` / `AP-STA-DISCONNECTED` events from your OpenWrt access points and publishes per-person home/away state and room location to Home Assistant via MQTT. No cloud, no Bluetooth beacons, no phone polling — just your existing WiFi infrastructure doing what it already knows: which devices are connected and where.
 
-![Home Assistant room tracking history](home-assistant-screenshot.png)
+![Home Assistant room tracking history](docs/home-assistant-screenshot.png)
 
 ## 🧠 How it works
 
