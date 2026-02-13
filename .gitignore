@@ -5,3 +5,5 @@ __pycache__
 .venv
 vmui_logs_export.jsonl
 config.yaml
+Dockerfile
+docker-compose.yaml

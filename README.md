@@ -22,21 +22,19 @@ For each person in the config:
 
 ## Quick start
 
-1. Copy and edit the example config:
+1. Copy the example files and edit them:
 
 ```bash
 cp config.example.yaml config.yaml
+cp Dockerfile.example Dockerfile
+cp docker-compose.yaml.example docker-compose.yaml
 # Edit config.yaml with your APs, people, and MAC addresses
 ```
 
-2. Run with Docker:
+2. Run with Docker Compose:
 
 ```bash
-docker build -t openwrt-presence .
-docker run -d \
-  -v $(pwd)/config.yaml:/app/config.yaml \
-  --name openwrt-presence \
-  openwrt-presence
+docker compose up -d
 ```
 
 Or run directly:
@@ -47,6 +45,8 @@ python -m openwrt_presence
 ```
 
 Set `CONFIG_PATH` to use a custom config location (default: `config.yaml`).
+
+The `.example` files are tracked by git; `config.yaml`, `Dockerfile`, and `docker-compose.yaml` are gitignored so you can customise them without dirtying the repo.
 
 ## Configuration
 
@@ -127,6 +127,18 @@ automation:
         target:
           entity_id: alarm_control_panel.home_alarm
 ```
+
+### Custom CA certificates
+
+If VictoriaLogs is behind a reverse proxy with a private CA, uncomment the CA lines in your `Dockerfile`:
+
+```dockerfile
+COPY my-ca.crt /usr/local/share/ca-certificates/
+RUN update-ca-certificates
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+```
+
+The `SSL_CERT_FILE` env var is needed because `aiohttp` uses `certifi`'s bundle by default rather than the system store.
 
 ## Development
 

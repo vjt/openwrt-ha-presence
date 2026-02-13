@@ -1,0 +1,8 @@
+services:
+  openwrt-presence:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    # environment:
+    #   CONFIG_PATH: /app/config.yaml

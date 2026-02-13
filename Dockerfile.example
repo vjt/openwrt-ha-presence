@@ -1,0 +1,12 @@
+FROM python:3.11-slim
+
+# Uncomment to trust a custom CA (e.g. for internal VictoriaLogs behind a reverse proxy):
+# COPY my-ca.crt /usr/local/share/ca-certificates/
+# RUN update-ca-certificates
+# ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
+WORKDIR /app
+COPY pyproject.toml .
+COPY src/ src/
+RUN pip install --no-cache-dir .
+CMD ["python", "-m", "openwrt_presence"]
