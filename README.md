@@ -79,6 +79,55 @@ source:
 
 `away_timeout` (seconds) is a safety net. If a device hasn't reconnected to any AP within this duration after its last connection, it's marked away. Default: `64800` (18 hours).
 
+## Home Assistant integration
+
+### Prerequisites
+
+The [MQTT integration](https://www.home-assistant.io/integrations/mqtt/) must be configured in HA with your Mosquitto broker. Entities are auto-discovered via MQTT Discovery -- no manual HA configuration needed.
+
+### Interaction with HA Companion App
+
+HA's `person` entity prioritises non-GPS (router) trackers when they say `home`, but falls through to GPS when they say `not_home`. If GPS is stale, the person entity may stay `home` even after WiFi says `not_home`.
+
+For automations that need fast departure detection (e.g. alarm arming), reference `device_tracker.<person>_wifi` directly instead of the `person` entity.
+
+For people without the companion app (e.g. a housekeeper), `device_tracker.<person>_wifi` is the sole presence source.
+
+### Example: template sensor combining WiFi + GPS
+
+```yaml
+template:
+  - binary_sensor:
+      - name: "Alice Home"
+        state: >
+          {{ is_state('device_tracker.alice_wifi', 'home')
+             or is_state('person.alice', 'home') }}
+```
+
+### Example: arm alarm when everyone leaves
+
+```yaml
+automation:
+  - alias: "Arm alarm when everyone leaves"
+    trigger:
+      - platform: state
+        entity_id:
+          - device_tracker.alice_wifi
+          - device_tracker.bob_wifi
+        to: "not_home"
+    condition:
+      - condition: state
+        entity_id: device_tracker.alice_wifi
+        state: "not_home"
+      - condition: state
+        entity_id: device_tracker.bob_wifi
+        state: "not_home"
+    action:
+      - service: alarm_control_panel.alarm_arm_away
+        target:
+          entity_id: alarm_control_panel.home_alarm
+```
+
 ## Development
 
 ```bash
