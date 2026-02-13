@@ -184,6 +184,8 @@ docker container logs <container> -f 2>&1 | python3 src/openwrt_presence/monitor
 
 Replace `<container>` with your actual container name or ID.
 
+![openwrt-monitor in action](docs/monitor-screenshot.png)
+
 ## 📄 License
 
 [MIT](LICENSE)
