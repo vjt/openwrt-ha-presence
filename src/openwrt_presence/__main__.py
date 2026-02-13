@@ -7,6 +7,7 @@ import logging
 import os
 import signal
 import sys
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
@@ -17,6 +18,17 @@ from openwrt_presence.logging import setup_logging, log_state_change
 from openwrt_presence.mqtt import MqttPublisher
 
 logger = logging.getLogger(__name__)
+
+
+_STOP = object()
+
+
+async def _anext(aiter: AsyncIterator) -> object:
+    """Await the next item, returning _STOP on exhaustion."""
+    try:
+        return await aiter.__anext__()
+    except StopAsyncIteration:
+        return _STOP
 
 
 async def _tick_loop(engine: PresenceEngine, publisher: MqttPublisher, interval: float = 30.0) -> None:
@@ -93,8 +105,19 @@ async def _run() -> None:
 
     # Main event processing loop
     try:
-        async for event in event_stream:
-            if stop_event.is_set():
+        stop_waiter = asyncio.ensure_future(stop_event.wait())
+        aiter = event_stream.__aiter__()
+        while True:
+            next_task = asyncio.ensure_future(_anext(aiter))
+            done, _ = await asyncio.wait(
+                {next_task, stop_waiter},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if stop_waiter in done:
+                next_task.cancel()
+                break
+            event = next_task.result()
+            if event is _STOP:
                 break
             changes = engine.process_event(event)
             for change in changes:
