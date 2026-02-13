@@ -128,6 +128,26 @@ automation:
           entity_id: alarm_control_panel.home_alarm
 ```
 
+### NTP on OpenWrt APs
+
+All APs **must** have NTP enabled and synced. The departure timer on exit nodes uses the event timestamp from syslog — if the AP's clock is skewed, the timeout calculation will be wrong (e.g. a 3-minute clock drift can eliminate a 2-minute grace period entirely).
+
+Room selection for multi-device users is resilient to clock skew (it uses processing order, not timestamps), but departure deadlines are not.
+
+On OpenWrt, verify NTP is enabled:
+
+```bash
+uci show system.ntp
+```
+
+If `system.ntp.enabled` is missing or `'0'`, enable it:
+
+```bash
+uci set system.ntp.enabled='1'
+uci commit system
+/etc/init.d/sysntpd restart
+```
+
 ### Custom CA certificates
 
 If VictoriaLogs is behind a reverse proxy with a private CA, uncomment the CA lines in your `Dockerfile`:

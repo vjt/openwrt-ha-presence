@@ -132,6 +132,15 @@ class TestMultiDevicePerson:
         state = engine.get_person_state("alice")
         assert state.room == "bedroom"
 
+    def test_room_follows_processing_order_not_timestamp(self, sample_config):
+        """Clock skew: second connect has an earlier timestamp but should still win."""
+        engine = PresenceEngine(sample_config)
+        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-office", _ts(10)))
+        # Second device connects later but has a skewed timestamp in the past
+        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:02", "ap-bedroom", _ts(0)))
+        state = engine.get_person_state("alice")
+        assert state.room == "bedroom"
+
 
 class TestNoSpuriousChanges:
     def test_reconnect_to_same_node_no_change(self, sample_config):

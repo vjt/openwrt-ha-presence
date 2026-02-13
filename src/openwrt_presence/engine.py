@@ -39,6 +39,7 @@ class _DeviceTracker:
     state: DeviceState = DeviceState.AWAY
     node: str = ""
     last_connect_time: datetime | None = None
+    last_connect_seq: int = -1
     exit_deadline: datetime | None = None
     last_disconnect_time: datetime | None = None
 
@@ -53,6 +54,7 @@ class PresenceEngine:
         self._config = config
         self._devices: dict[str, _DeviceTracker] = {}
         self._last_person_state: dict[str, PersonState] = {}
+        self._event_seq = 0
 
         # Initialise every known person to away
         for name in config.people:
@@ -134,6 +136,8 @@ class PresenceEngine:
         tracker.state = DeviceState.CONNECTED
         tracker.node = event.node
         tracker.last_connect_time = event.timestamp
+        self._event_seq += 1
+        tracker.last_connect_seq = self._event_seq
         tracker.exit_deadline = None  # cancel any departure timer
         tracker.last_disconnect_time = None
 
@@ -164,7 +168,7 @@ class PresenceEngine:
 
         home = False
         best_room: str | None = None
-        best_time: datetime | None = None
+        best_seq: int = -1
 
         for mac in person_cfg.macs:
             tracker = self._devices.get(mac)
@@ -174,10 +178,8 @@ class PresenceEngine:
             if tracker.state in (DeviceState.CONNECTED, DeviceState.DEPARTING):
                 home = True
 
-            # Room follows the most recently CONNECTED MAC
-            if tracker.last_connect_time is not None and (
-                best_time is None or tracker.last_connect_time > best_time
-            ):
+            # Room follows the most recently CONNECTED MAC (by processing order)
+            if tracker.last_connect_seq > best_seq:
                 # Only set room if the device is CONNECTED or DEPARTING
                 if tracker.state in (
                     DeviceState.CONNECTED,
@@ -186,7 +188,7 @@ class PresenceEngine:
                     node_cfg = self._config.nodes.get(tracker.node)
                     room = node_cfg.room if node_cfg is not None else None
                     best_room = room
-                    best_time = tracker.last_connect_time
+                    best_seq = tracker.last_connect_seq
 
         if not home:
             return PersonState(home=False, room=None)
