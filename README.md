@@ -128,19 +128,22 @@ automation:
           entity_id: alarm_control_panel.home_alarm
 ```
 
-### NTP on OpenWrt APs
+### NTP and timezone on OpenWrt APs
 
-All APs **must** have NTP enabled and synced. The departure timer on exit nodes uses the event timestamp from syslog — if the AP's clock is skewed, the timeout calculation will be wrong (e.g. a 3-minute clock drift can eliminate a 2-minute grace period entirely).
+All APs **must** have their timezone set to UTC and NTP enabled. The departure timer on exit nodes uses the event timestamp from syslog — clock skew or timezone mismatch will break timeout calculations (e.g. a 3-minute drift can eliminate a 2-minute grace period entirely).
+
+Since RFC3164 syslog carries no timezone information, VictoriaLogs assumes timestamps are UTC. An AP set to a local timezone (e.g. CET) will appear to have a 1–2 hour clock skew.
 
 Room selection for multi-device users is resilient to clock skew (it uses processing order, not timestamps), but departure deadlines are not.
 
-On OpenWrt, verify NTP is enabled:
+Verify timezone and NTP on OpenWrt:
 
 ```bash
+uci show system.@system[0].timezone   # should be UTC0
 uci show system.ntp
 ```
 
-If `system.ntp.enabled` is missing or `'0'`, enable it:
+If NTP is not enabled:
 
 ```bash
 uci set system.ntp.enabled='1'
