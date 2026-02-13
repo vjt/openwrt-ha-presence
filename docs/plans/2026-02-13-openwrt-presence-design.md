@@ -325,6 +325,42 @@ homeassistant/sensor/<person>_room/config           # discovery payload
 openwrt-presence/<person>/room                      # room name or ""
 ```
 
+### Example automation: arm alarm when everyone leaves
+
+```yaml
+automation:
+  - alias: "Arm alarm when everyone leaves"
+    description: >
+      Arms the alarm when all tracked people are away according to WiFi
+      presence. Uses device_tracker entities directly for fast departure
+      detection instead of the person entity (which waits for GPS).
+    trigger:
+      - platform: state
+        entity_id:
+          - device_tracker.alice_wifi
+          - device_tracker.bob_wifi
+          - device_tracker.eve_wifi
+        to: "not_home"
+    condition:
+      - condition: state
+        entity_id: device_tracker.alice_wifi
+        state: "not_home"
+      - condition: state
+        entity_id: device_tracker.bob_wifi
+        state: "not_home"
+      - condition: state
+        entity_id: device_tracker.eve_wifi
+        state: "not_home"
+    action:
+      - service: alarm_control_panel.alarm_arm_away
+        target:
+          entity_id: alarm_control_panel.home_alarm
+```
+
+The trigger fires when any person goes `not_home`, and the condition block
+ensures all people are `not_home` before arming. This way the alarm is only
+armed when the last person leaves.
+
 ## Startup Behavior
 
 On startup, the service has no prior state. To avoid falsely reporting everyone
