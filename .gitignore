@@ -1,2 +1,6 @@
 .claude
 .*.sw?
+__pycache__
+*.egg-info
+.venv
+vmui_logs_export.jsonl
