@@ -271,3 +271,48 @@ class TestTail:
         mock_sleep.assert_called_once()
         # Verify two get calls were made (first failed, second succeeded)
         assert call_count == 2
+
+    async def test_tail_reconnects_on_timeout(self, source: VictoriaLogsSource):
+        """Mock a TimeoutError then success, verify reconnection."""
+        line = _make_jsonl_line(
+            msg="phy1-ap0: AP-STA-CONNECTED aa:bb:cc:dd:ee:01 auth_alg=open",
+            hostname="ap-office",
+        )
+
+        async def mock_content_iter():
+            yield (line + "\n").encode()
+
+        mock_content = MagicMock()
+        mock_content.__aiter__ = lambda self: mock_content_iter()
+
+        mock_response_ok = AsyncMock()
+        mock_response_ok.status = 200
+        mock_response_ok.content = mock_content
+        mock_response_ok.__aenter__ = AsyncMock(return_value=mock_response_ok)
+        mock_response_ok.__aexit__ = AsyncMock(return_value=False)
+
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise TimeoutError()
+            return mock_response_ok
+
+        mock_session = AsyncMock(spec=aiohttp.ClientSession)
+        mock_session.get = MagicMock(side_effect=side_effect)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        events: list[PresenceEvent] = []
+        with patch("aiohttp.ClientSession", return_value=mock_session), \
+             patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            async for event in source.tail():
+                events.append(event)
+                if len(events) >= 1:
+                    break
+
+        assert len(events) == 1
+        mock_sleep.assert_called_once()
+        assert call_count == 2

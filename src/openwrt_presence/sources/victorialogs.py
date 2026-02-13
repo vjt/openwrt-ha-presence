@@ -40,10 +40,11 @@ class VictoriaLogsSource:
         """Stream live events. Auto-reconnects on failure."""
         url = f"{self._url}/select/logsql/tail"
         params = {"query": QUERY}
+        timeout = aiohttp.ClientTimeout(total=None, sock_read=None)
 
         while True:
             try:
-                async with aiohttp.ClientSession() as session:
+                async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.get(url, params=params) as response:
                         buffer = b""
                         async for chunk in response.content:
@@ -56,7 +57,7 @@ class VictoriaLogsSource:
                                 event = parse_victorialogs_line(line)
                                 if event is not None:
                                     yield event
-            except aiohttp.ClientError as exc:
+            except (aiohttp.ClientError, TimeoutError) as exc:
                 logger.warning(
                     "VictoriaLogs tail connection error: %s. "
                     "Reconnecting in 5 seconds...",
