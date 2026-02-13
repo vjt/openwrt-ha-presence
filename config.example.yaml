@@ -1,0 +1,45 @@
+source:
+  type: victorialogs
+  url: http://victorialogs:9428
+  # For syslog source instead:
+  # type: syslog
+  # listen: 0.0.0.0:514
+
+mqtt:
+  host: mosquitto
+  port: 1883
+  topic_prefix: openwrt-presence
+  # username: optional
+  # password: optional
+
+nodes:
+  ap-garden:
+    room: garden
+    type: exit
+    timeout: 120
+  ap-office:
+    room: office
+    type: interior
+  ap-bedroom:
+    room: bedroom
+    type: interior
+  ap-livingroom:
+    room: livingroom
+    type: interior
+  ap-kitchen:
+    room: kitchen
+    type: interior
+  ap-laundry:
+    room: laundry_room
+    type: interior
+
+away_timeout: 64800  # 18 hours
+
+people:
+  alice:
+    macs:
+      - "AA:BB:CC:DD:EE:01"
+      - "AA:BB:CC:DD:EE:02"
+  bob:
+    macs:
+      - "AA:BB:CC:DD:EE:03"
