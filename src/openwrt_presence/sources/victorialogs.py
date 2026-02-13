@@ -20,7 +20,12 @@ class VictoriaLogsSource:
         self._url = url.rstrip("/")
 
     async def backfill(self, hours: int = 4) -> AsyncIterator[PresenceEvent]:
-        """Query recent logs to reconstruct state."""
+        """Query recent logs to reconstruct state.
+
+        Events are sorted by timestamp before yielding, because
+        VictoriaLogs returns results grouped by stream (per-AP),
+        not in global chronological order.
+        """
         url = f"{self._url}/select/logsql/query"
         params = {"query": QUERY, "start": f"-{hours}h"}
 
@@ -28,13 +33,19 @@ class VictoriaLogsSource:
             async with session.get(url, params=params) as response:
                 body = await response.text()
 
+        events: list[PresenceEvent] = []
         for line in body.splitlines():
             line = line.strip()
             if not line:
                 continue
             event = parse_victorialogs_line(line)
             if event is not None:
-                yield event
+                events.append(event)
+
+        events.sort(key=lambda e: e.timestamp)
+
+        for event in events:
+            yield event
 
     async def tail(self) -> AsyncIterator[PresenceEvent]:
         """Stream live events. Auto-reconnects on failure."""

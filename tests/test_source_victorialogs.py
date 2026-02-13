@@ -137,8 +137,55 @@ class TestBackfill:
         assert events[0].event == "connect"
         assert events[1].event == "disconnect"
 
+    async def test_backfill_sorts_by_timestamp(self, source: VictoriaLogsSource):
+        """VictoriaLogs returns events grouped by stream (per-AP), not
+        in global chronological order. Backfill must sort them."""
+        lines = [
+            # AP-1 events (later)
+            _make_jsonl_line(
+                msg="phy1-ap0: AP-STA-CONNECTED aa:bb:cc:dd:ee:01 auth_alg=open",
+                hostname="ap-office",
+                time="2026-02-12T10:05:00Z",
+            ),
+            _make_jsonl_line(
+                msg="phy1-ap0: AP-STA-DISCONNECTED aa:bb:cc:dd:ee:01",
+                hostname="ap-office",
+                time="2026-02-12T10:10:00Z",
+            ),
+            # AP-2 events (earlier, but returned second by VictoriaLogs)
+            _make_jsonl_line(
+                msg="phy1-ap0: AP-STA-CONNECTED aa:bb:cc:dd:ee:01 auth_alg=open",
+                hostname="ap-garden",
+                time="2026-02-12T10:00:00Z",
+            ),
+            _make_jsonl_line(
+                msg="phy1-ap0: AP-STA-DISCONNECTED aa:bb:cc:dd:ee:01",
+                hostname="ap-garden",
+                time="2026-02-12T10:03:00Z",
+            ),
+        ]
+        response_text = "\n".join(lines) + "\n"
 
-class TestTail:
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.text = AsyncMock(return_value=response_text)
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = AsyncMock(spec=aiohttp.ClientSession)
+        mock_session.get = MagicMock(return_value=mock_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            events = [e async for e in source.backfill(hours=4)]
+
+        assert len(events) == 4
+        # Should be sorted chronologically, not in VictoriaLogs stream order
+        assert events[0].node == "ap-garden"   # 10:00
+        assert events[1].node == "ap-garden"   # 10:03
+        assert events[2].node == "ap-office"   # 10:05
+        assert events[3].node == "ap-office"   # 10:10
     @pytest.fixture
     def source(self) -> VictoriaLogsSource:
         return VictoriaLogsSource("http://logs.local:9428")
