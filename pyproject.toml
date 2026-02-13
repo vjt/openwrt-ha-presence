@@ -12,6 +12,9 @@ dependencies = [
     "aiohttp>=3.9",
 ]
 
+[project.scripts]
+openwrt-monitor = "openwrt_presence.monitor:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
