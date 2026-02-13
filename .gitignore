@@ -7,3 +7,4 @@ vmui_logs_export.jsonl
 config.yaml
 Dockerfile
 docker-compose.yaml
+*.crt
