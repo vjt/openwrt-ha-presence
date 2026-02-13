@@ -176,11 +176,19 @@ pytest -v
 
 ### 📺 Log monitor
 
-A pretty-print CLI is included for watching the log stream in real time:
+A pretty-print CLI is included for watching the log stream in real time with ANSI colors — green for arrivals, red for departures, room names, device details:
 
 ```bash
-docker container logs eve -f 2>&1 | openwrt-monitor
+# Set up the environment (once)
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+
+# Watch the stream
+docker container logs <container> -f 2>&1 | openwrt-monitor
 ```
+
+Replace `<container>` with your actual container name or ID.
 
 ## 📄 License
 
