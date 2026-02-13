@@ -23,6 +23,7 @@ class StateChange:
     room: str | None  # None when away
     mac: str
     node: str
+    timestamp: datetime
 
 
 @dataclass
@@ -75,7 +76,7 @@ class PresenceEngine:
         elif event.event == "disconnect":
             self._handle_disconnect(tracker, event, node_cfg)
 
-        return self._emit_changes(person, event.mac, event.node)
+        return self._emit_changes(person, event.mac, event.node, event.timestamp)
 
     def tick(self, now: datetime) -> list[StateChange]:
         """Check all departure/global timers and return person-level changes."""
@@ -111,7 +112,7 @@ class PresenceEngine:
             if transitioned:
                 person = self._config.mac_to_person(mac)
                 if person is not None:
-                    new_changes = self._emit_changes(person, mac, tracker.node)
+                    new_changes = self._emit_changes(person, mac, tracker.node, now)
                     changes.extend(new_changes)
 
         return changes
@@ -193,7 +194,7 @@ class PresenceEngine:
         return PersonState(home=True, room=best_room)
 
     def _emit_changes(
-        self, person: str, mac: str, node: str
+        self, person: str, mac: str, node: str, timestamp: datetime
     ) -> list[StateChange]:
         """Compare computed person state to last published; emit if changed."""
         new_state = self._compute_person_state(person)
@@ -213,5 +214,6 @@ class PresenceEngine:
                 room=new_state.room,
                 mac=mac,
                 node=node,
+                timestamp=timestamp,
             )
         ]

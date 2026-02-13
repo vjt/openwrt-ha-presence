@@ -68,5 +68,6 @@ def log_state_change(change: StateChange) -> None:
             "room": change.room,
             "mac": change.mac,
             "node": change.node,
+            "event_ts": change.timestamp.isoformat(),
         },
     )

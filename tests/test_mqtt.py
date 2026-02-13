@@ -1,9 +1,12 @@
 import json
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, call
 
 from openwrt_presence.config import Config
 from openwrt_presence.engine import StateChange
 from openwrt_presence.mqtt import MqttPublisher
+
+_TS = datetime(2026, 2, 12, 10, 0, 0, tzinfo=timezone.utc)
 
 
 class TestMqttDiscovery:
@@ -18,6 +21,7 @@ class TestMqttDiscovery:
         payload = json.loads(tracker_calls[0][0][1])  # positional arg 1
         assert payload["source_type"] == "router"
         assert payload["state_topic"] == "openwrt-presence/alice/state"
+        assert payload["json_attributes_topic"] == "openwrt-presence/alice/attributes"
         assert payload["availability_topic"] == "openwrt-presence/status"
 
     def test_publishes_room_sensor_discovery(self, sample_config):
@@ -56,7 +60,7 @@ class TestMqttStatePublish:
     def test_publishes_home_state(self, sample_config):
         mock_client = MagicMock()
         publisher = MqttPublisher(sample_config, mock_client)
-        change = StateChange(person="alice", home=True, room="office", mac="aa:bb:cc:dd:ee:01", node="ap-office")
+        change = StateChange(person="alice", home=True, room="office", mac="aa:bb:cc:dd:ee:01", node="ap-office", timestamp=_TS)
         publisher.publish_state(change)
 
         calls = mock_client.publish.call_args_list
@@ -67,7 +71,7 @@ class TestMqttStatePublish:
     def test_publishes_room(self, sample_config):
         mock_client = MagicMock()
         publisher = MqttPublisher(sample_config, mock_client)
-        change = StateChange(person="alice", home=True, room="office", mac="aa:bb:cc:dd:ee:01", node="ap-office")
+        change = StateChange(person="alice", home=True, room="office", mac="aa:bb:cc:dd:ee:01", node="ap-office", timestamp=_TS)
         publisher.publish_state(change)
 
         calls = mock_client.publish.call_args_list
@@ -78,7 +82,7 @@ class TestMqttStatePublish:
     def test_publishes_not_home_state(self, sample_config):
         mock_client = MagicMock()
         publisher = MqttPublisher(sample_config, mock_client)
-        change = StateChange(person="alice", home=False, room=None, mac="aa:bb:cc:dd:ee:01", node="ap-garden")
+        change = StateChange(person="alice", home=False, room=None, mac="aa:bb:cc:dd:ee:01", node="ap-garden", timestamp=_TS)
         publisher.publish_state(change)
 
         calls = mock_client.publish.call_args_list
@@ -88,17 +92,31 @@ class TestMqttStatePublish:
     def test_publishes_empty_room_when_away(self, sample_config):
         mock_client = MagicMock()
         publisher = MqttPublisher(sample_config, mock_client)
-        change = StateChange(person="alice", home=False, room=None, mac="aa:bb:cc:dd:ee:01", node="ap-garden")
+        change = StateChange(person="alice", home=False, room=None, mac="aa:bb:cc:dd:ee:01", node="ap-garden", timestamp=_TS)
         publisher.publish_state(change)
 
         calls = mock_client.publish.call_args_list
         room_calls = [c for c in calls if "alice/room" in str(c)]
         assert room_calls[0][0][1] == ""
 
+    def test_publishes_attributes_with_timestamp(self, sample_config):
+        mock_client = MagicMock()
+        publisher = MqttPublisher(sample_config, mock_client)
+        change = StateChange(person="alice", home=True, room="office", mac="aa:bb:cc:dd:ee:01", node="ap-office", timestamp=_TS)
+        publisher.publish_state(change)
+
+        calls = mock_client.publish.call_args_list
+        attr_calls = [c for c in calls if "alice/attributes" in str(c)]
+        assert len(attr_calls) == 1
+        attrs = json.loads(attr_calls[0][0][1])
+        assert attrs["event_ts"] == _TS.isoformat()
+        assert attrs["mac"] == "aa:bb:cc:dd:ee:01"
+        assert attrs["node"] == "ap-office"
+
     def test_state_messages_are_retained(self, sample_config):
         mock_client = MagicMock()
         publisher = MqttPublisher(sample_config, mock_client)
-        change = StateChange(person="alice", home=True, room="office", mac="aa:bb:cc:dd:ee:01", node="ap-office")
+        change = StateChange(person="alice", home=True, room="office", mac="aa:bb:cc:dd:ee:01", node="ap-office", timestamp=_TS)
         publisher.publish_state(change)
 
         for c in mock_client.publish.call_args_list:

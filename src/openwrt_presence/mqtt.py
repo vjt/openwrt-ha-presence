@@ -50,6 +50,7 @@ class MqttPublisher:
             "name": f"{person.title()} WiFi",
             "unique_id": f"openwrt_presence_{person}_wifi",
             "state_topic": f"{self._topic_prefix}/{person}/state",
+            "json_attributes_topic": f"{self._topic_prefix}/{person}/attributes",
             "payload_home": "home",
             "payload_not_home": "not_home",
             "source_type": "router",
@@ -71,7 +72,7 @@ class MqttPublisher:
         self._client.publish(topic, json.dumps(payload), retain=True)
 
     def publish_state(self, change: StateChange) -> None:
-        """Publish state and room for a person."""
+        """Publish state, room, and attributes for a person."""
         state_value = "home" if change.home else "not_home"
         room_value = change.room if change.room is not None else ""
 
@@ -83,6 +84,15 @@ class MqttPublisher:
         self._client.publish(
             f"{self._topic_prefix}/{change.person}/room",
             room_value,
+            retain=True,
+        )
+        self._client.publish(
+            f"{self._topic_prefix}/{change.person}/attributes",
+            json.dumps({
+                "event_ts": change.timestamp.isoformat(),
+                "mac": change.mac,
+                "node": change.node,
+            }),
             retain=True,
         )
 
