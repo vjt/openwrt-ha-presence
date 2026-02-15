@@ -24,6 +24,7 @@ nodes:
     room: laundry_room
 
 departure_timeout: 120  # seconds without signal before marking away
+poll_interval: 30       # seconds between TSDB queries
 
 people:
   alice:

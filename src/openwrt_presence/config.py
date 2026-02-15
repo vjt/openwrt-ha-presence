@@ -46,6 +46,7 @@ class Config:
     nodes: dict[str, NodeConfig]
     people: dict[str, PersonConfig]
     departure_timeout: int
+    poll_interval: int = 30
     _mac_lookup: dict[str, str] = field(default_factory=dict, repr=False)
 
     @staticmethod
@@ -118,12 +119,16 @@ class Config:
         # --- departure_timeout ---
         departure_timeout: int = data["departure_timeout"]
 
+        # --- poll_interval ---
+        poll_interval: int = data.get("poll_interval", 30)
+
         return cls(
             source=source,
             mqtt=mqtt,
             nodes=nodes,
             people=people,
             departure_timeout=departure_timeout,
+            poll_interval=poll_interval,
             _mac_lookup=mac_lookup,
         )
 

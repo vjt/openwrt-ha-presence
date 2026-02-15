@@ -18,8 +18,6 @@ from openwrt_presence.sources.prometheus import PrometheusSource
 
 logger = logging.getLogger(__name__)
 
-POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "30"))
-
 
 async def _run() -> None:
     config_path = os.environ.get("CONFIG_PATH", "config.yaml")
@@ -64,13 +62,13 @@ async def _run() -> None:
     for change in changes:
         publisher.publish_state(change)
         log_state_change(change)
-    logger.info("Initial state established, starting poll loop (interval=%ds)", POLL_INTERVAL)
+    logger.info("Initial state established, starting poll loop (interval=%ds)", config.poll_interval)
 
     # Poll loop
     try:
         while not stop_event.is_set():
             try:
-                await asyncio.wait_for(stop_event.wait(), timeout=POLL_INTERVAL)
+                await asyncio.wait_for(stop_event.wait(), timeout=config.poll_interval)
                 break  # stop_event was set
             except asyncio.TimeoutError:
                 pass  # poll interval elapsed, do a cycle
