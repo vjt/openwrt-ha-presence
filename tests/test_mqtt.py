@@ -102,7 +102,7 @@ class TestMqttStatePublish:
     def test_publishes_attributes_with_timestamp(self, sample_config):
         mock_client = MagicMock()
         publisher = MqttPublisher(sample_config, mock_client)
-        change = StateChange(person="alice", home=True, room="office", mac="aa:bb:cc:dd:ee:01", node="ap-office", timestamp=_TS)
+        change = StateChange(person="alice", home=True, room="office", mac="aa:bb:cc:dd:ee:01", node="ap-office", timestamp=_TS, rssi=-45)
         publisher.publish_state(change)
 
         calls = mock_client.publish.call_args_list
@@ -112,6 +112,7 @@ class TestMqttStatePublish:
         assert attrs["event_ts"] == _TS.isoformat()
         assert attrs["mac"] == "aa:bb:cc:dd:ee:01"
         assert attrs["node"] == "ap-office"
+        assert attrs["rssi"] == -45
 
     def test_state_messages_are_retained(self, sample_config):
         mock_client = MagicMock()

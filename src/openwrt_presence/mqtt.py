@@ -92,6 +92,7 @@ class MqttPublisher:
                 "event_ts": change.timestamp.isoformat(),
                 "mac": change.mac,
                 "node": change.node,
+                "rssi": change.rssi,
             }),
             retain=True,
         )

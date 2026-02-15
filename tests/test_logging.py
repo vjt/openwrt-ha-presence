@@ -13,7 +13,7 @@ class TestStructuredLogging:
     def test_logs_home_event_as_json(self):
         handler = logging.StreamHandler(stream := io.StringIO())
         setup_logging(handler=handler)
-        change = StateChange(person="alice", home=True, room="kitchen", mac="aa:bb:cc:dd:ee:01", node="ap-kitchen", timestamp=_TS)
+        change = StateChange(person="alice", home=True, room="kitchen", mac="aa:bb:cc:dd:ee:01", node="ap-kitchen", timestamp=_TS, rssi=-42)
         log_state_change(change)
 
         line = stream.getvalue().strip()
@@ -21,6 +21,7 @@ class TestStructuredLogging:
         assert data["person"] == "alice"
         assert data["event"] == "home"
         assert data["room"] == "kitchen"
+        assert data["rssi"] == -42
         assert "ts" in data
         assert data["event_ts"] == _TS.isoformat()
 

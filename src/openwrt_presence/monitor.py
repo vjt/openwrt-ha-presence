@@ -37,6 +37,7 @@ def _format_state_change(data: dict) -> str:
     room = data.get("room") or ""
     node = data.get("node", "")
     mac = data.get("mac", "")
+    rssi = data.get("rssi")
     event_ts = _parse_time(data.get("event_ts", data.get("ts", "")))
 
     if event == "home":
@@ -47,7 +48,8 @@ def _format_state_change(data: dict) -> str:
         event_str = f"{RED}away{RESET}"
 
     room_str = f"  {CYAN}{room}{RESET}" if room else ""
-    detail = f"{DIM}({node} / {mac}){RESET}"
+    rssi_str = f" {rssi}dBm" if rssi is not None else ""
+    detail = f"{DIM}({node}{rssi_str} / {mac}){RESET}"
 
     return f"{DIM}{event_ts}{RESET}  {bullet} {BOLD}{person:<10}{RESET} {event_str}{room_str}  {detail}"
 

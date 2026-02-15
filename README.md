@@ -2,18 +2,27 @@
 
 WiFi-based presence detection for Home Assistant using OpenWrt APs.
 
-Parses hostapd `AP-STA-CONNECTED` / `AP-STA-DISCONNECTED` events from your OpenWrt access points and publishes per-person home/away state and room location to Home Assistant via MQTT. No cloud, no Bluetooth beacons, no phone polling — just your existing WiFi infrastructure doing what it already knows: which devices are connected and where.
+Polls RSSI metrics (`wifi_station_signal_dbm`) from a Prometheus-compatible TSDB and publishes per-person home/away state and room location to Home Assistant via MQTT. No cloud, no Bluetooth beacons, no phone polling — just your existing WiFi infrastructure doing what it already knows: which devices are connected and where.
+
+Room detection uses signal strength — your phone is in whichever room has the strongest RSSI reading. Departure detection uses metric disappearance — if a MAC vanishes from all APs for longer than the departure timeout, the person is away.
 
 ![Home Assistant room tracking history](docs/home-assistant-screenshot.png)
 
 ## 🧠 How it works
 
 ```
-OpenWrt APs  -->  VictoriaLogs / Syslog  -->  openwrt-presence  -->  MQTT  -->  Home Assistant
-  (hostapd)         (log source)              (state machine)      (discovery)   (device_tracker + sensor)
+OpenWrt APs  -->  telegraf  -->  VictoriaMetrics  -->  openwrt-presence  -->  MQTT  -->  Home Assistant
+ (node-exporter-lua)             (Prometheus API)      (state machine)      (discovery)   (device_tracker + sensor)
 ```
 
-Each AP is configured as either an **exit** node (e.g. garden) or **interior** node (e.g. office, bedroom). Only exit nodes drive departure detection with a configurable timeout. Interior disconnects — phone doze, AP roaming, the 37 daily reconnections your iPhone does for no reason — are ignored.
+Every ~30 seconds, `openwrt-presence` queries the TSDB for current RSSI readings of tracked MAC addresses. The engine processes each snapshot:
+
+1. **Visible devices** → marked CONNECTED, room set by strongest RSSI
+2. **Disappeared devices** → marked DEPARTING, departure timer starts
+3. **Timer expires** (default 120s) → marked AWAY
+4. **Reappears** → timer cancelled, back to CONNECTED
+
+All APs are equal — no exit/interior distinction needed. The RSSI metrics tell the full story.
 
 ### 🏠 HA entities created
 
@@ -46,7 +55,13 @@ pip install .
 python -m openwrt_presence
 ```
 
-Set `CONFIG_PATH` to use a custom config location (default: `config.yaml`).
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONFIG_PATH` | `config.yaml` | Path to config file |
+| `POLL_INTERVAL` | `30` | Seconds between TSDB queries |
+| `SSL_CERT_FILE` | (system) | Path to CA bundle for custom CAs |
 
 The `.example` files are tracked by git; `config.yaml`, `Dockerfile`, and `docker-compose.yaml` are gitignored so you can customise them without dirtying the repo.
 
@@ -54,32 +69,33 @@ The `.example` files are tracked by git; `config.yaml`, `Dockerfile`, and `docke
 
 See [`config.yaml.example`](config.yaml.example) for a full example.
 
-### 📡 Source adapters
+### 📡 Source
 
-**VictoriaLogs** (recommended) — tails the VictoriaLogs API for real-time events, with backfill on startup:
-
-```yaml
-source:
-  type: victorialogs
-  url: http://victorialogs:9428
-```
-
-**Syslog** — listens for UDP syslog directly from the APs:
+Any Prometheus-compatible TSDB works — VictoriaMetrics, Prometheus, Thanos, etc. The metric must be `wifi_station_signal_dbm` with labels `mac` (station MAC) and `instance` (AP hostname).
 
 ```yaml
 source:
-  type: syslog
-  listen: 0.0.0.0:514
+  type: prometheus
+  url: http://victoriametrics:8428
 ```
 
-### 🚪 Node types
+### 📡 Nodes
 
-- **`exit`** — AP near an exit (garden, front door). Disconnect starts a departure timer. Requires `timeout` in seconds.
-- **`interior`** — AP inside the house. Disconnects are straight up ignored (phone doze, roaming between APs). Only connects update room.
+Each node maps an AP hostname (the `instance` label in metrics) to a room name:
 
-### ⏱️ Global away timeout
+```yaml
+nodes:
+  ap-garden:
+    room: garden
+  ap-office:
+    room: office
+  ap-bedroom:
+    room: bedroom
+```
 
-`away_timeout` (seconds) is a safety net for devices that silently disappear without a proper disconnect — looking at you, every Android phone ever. Default: `64800` (18 hours).
+### ⏱️ Departure timeout
+
+`departure_timeout` (seconds) is how long a device can be absent from all APs before the person is marked away. Default: `120`. This covers brief WiFi dropouts, phone doze cycles, and AP roaming transitions.
 
 ## 🏡 Home Assistant integration
 
@@ -130,32 +146,33 @@ automation:
           entity_id: alarm_control_panel.home_alarm
 ```
 
-## 🕐 NTP and timezone on OpenWrt APs
+## 📡 OpenWrt prerequisites
 
-All APs **must** have their timezone set to UTC and NTP enabled. The departure timer on exit nodes uses the event timestamp from syslog — clock skew or timezone mismatch will break timeout calculations. A 3-minute drift can completely eliminate a 2-minute grace period. Ask me how I know.
+### RSSI metrics exporter
 
-Since RFC3164 syslog carries no timezone information, VictoriaLogs assumes timestamps are UTC. An AP set to a local timezone (e.g. CET) will appear to have a 1–2 hour clock skew.
+Each AP needs [`prometheus-node-exporter-lua`](https://openwrt.org/docs/guide-user/perf_and_log/statistic.custom#prometheus_metrics) with the `wifi_stations` collector enabled. This exposes `wifi_station_signal_dbm` per associated station.
 
-Room selection for multi-device users is resilient to clock skew (it uses processing order, not timestamps), but departure deadlines are not.
-
-Verify timezone and NTP on OpenWrt:
+Install on OpenWrt:
 
 ```bash
-uci show system.@system[0].timezone   # should be UTC0
-uci show system.ntp
+opkg update
+opkg install prometheus-node-exporter-lua prometheus-node-exporter-lua-wifi_stations
+/etc/init.d/prometheus-node-exporter-lua restart
 ```
 
-If NTP is not enabled:
+A metrics scraper (telegraf, prometheus, etc.) should collect from each AP and write to your TSDB.
+
+### 🕐 NTP
+
+APs should have NTP enabled for accurate timestamps in the TSDB. Verify:
 
 ```bash
-uci set system.ntp.enabled='1'
-uci commit system
-/etc/init.d/sysntpd restart
+uci show system.ntp
 ```
 
 ## 🔒 Custom CA certificates
 
-If VictoriaLogs is behind a reverse proxy with a private CA, uncomment the CA lines in your `Dockerfile`:
+If your TSDB is behind a reverse proxy with a private CA, uncomment the CA lines in your `Dockerfile`:
 
 ```dockerfile
 COPY my-ca.crt /usr/local/share/ca-certificates/
@@ -176,7 +193,7 @@ pytest -v
 
 ### 📺 Log monitor
 
-A pretty-print CLI is included for watching the log stream in real time with ANSI colors — green for arrivals, red for departures, room names, device details:
+A pretty-print CLI is included for watching the log stream in real time with ANSI colors — green for arrivals, red for departures, room names, RSSI values, device details:
 
 ```bash
 docker container logs <container> -f 2>&1 | python3 src/openwrt_presence/monitor.py
