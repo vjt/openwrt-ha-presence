@@ -7,13 +7,21 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from openwrt_presence.config import Config, NodeConfig
-    from openwrt_presence.parser import PresenceEvent
 
 
 class DeviceState(Enum):
     CONNECTED = "connected"
     DEPARTING = "departing"
     AWAY = "away"
+
+
+@dataclass
+class StationReading:
+    """A single RSSI measurement from a Prometheus-compatible TSDB."""
+
+    mac: str  # lowercase, colon-separated
+    ap: str  # AP hostname (instance label)
+    rssi: int  # signal strength in dBm
 
 
 @dataclass
@@ -24,6 +32,7 @@ class StateChange:
     mac: str
     node: str
     timestamp: datetime
+    rssi: int | None = None
 
 
 @dataclass
@@ -38,10 +47,8 @@ class _DeviceTracker:
 
     state: DeviceState = DeviceState.AWAY
     node: str = ""
-    last_connect_time: datetime | None = None
-    last_connect_seq: int = -1
-    exit_deadline: datetime | None = None
-    last_disconnect_time: datetime | None = None
+    rssi: int = -100
+    departure_deadline: datetime | None = None
 
 
 class PresenceEngine:
@@ -54,7 +61,6 @@ class PresenceEngine:
         self._config = config
         self._devices: dict[str, _DeviceTracker] = {}
         self._last_person_state: dict[str, PersonState] = {}
-        self._event_seq = 0
 
         # Initialise every known person to away
         for name in config.people:
@@ -64,58 +70,87 @@ class PresenceEngine:
     # Public API
     # ------------------------------------------------------------------
 
-    def process_event(self, event: PresenceEvent) -> list[StateChange]:
-        """Process a single presence event and return person-level changes."""
-        person = self._config.mac_to_person(event.mac)
-        if person is None:
-            return []
+    def process_snapshot(
+        self, now: datetime, readings: list[StationReading]
+    ) -> list[StateChange]:
+        """Process a complete station snapshot and return person-level changes.
 
-        tracker = self._devices.setdefault(event.mac, _DeviceTracker())
-        node_cfg = self._config.nodes.get(event.node)
+        For each tracked MAC:
+        - If visible in the snapshot → CONNECTED, update node/rssi.
+        - If not visible and was CONNECTED → DEPARTING, set departure deadline.
+        - If DEPARTING and deadline passed → AWAY.
+        """
+        # Build best-RSSI-per-MAC lookup from readings (tracked MACs only)
+        visible: dict[str, StationReading] = {}
+        for r in readings:
+            mac = r.mac.lower()
+            if self._config.mac_to_person(mac) is None:
+                continue
+            if mac not in visible or r.rssi > visible[mac].rssi:
+                visible[mac] = StationReading(mac=mac, ap=r.ap, rssi=r.rssi)
 
-        if event.event == "connect":
-            self._handle_connect(tracker, event, node_cfg)
-        elif event.event == "disconnect":
-            self._handle_disconnect(tracker, event, node_cfg)
+        # Update visible MACs → CONNECTED
+        for mac, reading in visible.items():
+            tracker = self._devices.setdefault(mac, _DeviceTracker())
+            tracker.state = DeviceState.CONNECTED
+            tracker.node = reading.ap
+            tracker.rssi = reading.rssi
+            tracker.departure_deadline = None
 
-        return self._emit_changes(person, event.mac, event.node, event.timestamp)
+        # Update disappeared MACs → DEPARTING
+        for mac, tracker in self._devices.items():
+            if mac in visible:
+                continue
+            if tracker.state == DeviceState.CONNECTED:
+                tracker.state = DeviceState.DEPARTING
+                tracker.departure_deadline = now + timedelta(
+                    seconds=self._config.departure_timeout
+                )
+
+        # Expire DEPARTING → AWAY
+        for mac, tracker in self._devices.items():
+            if (
+                tracker.state == DeviceState.DEPARTING
+                and tracker.departure_deadline is not None
+                and now >= tracker.departure_deadline
+            ):
+                tracker.state = DeviceState.AWAY
+                tracker.departure_deadline = None
+
+        # Emit changes for all affected persons
+        affected: set[str] = set()
+        for mac in visible:
+            person = self._config.mac_to_person(mac)
+            if person:
+                affected.add(person)
+        for mac, tracker in self._devices.items():
+            if tracker.state in (DeviceState.DEPARTING, DeviceState.AWAY):
+                person = self._config.mac_to_person(mac)
+                if person:
+                    affected.add(person)
+
+        changes: list[StateChange] = []
+        for person in affected:
+            changes.extend(self._emit_changes(person, now))
+
+        return changes
 
     def tick(self, now: datetime) -> list[StateChange]:
-        """Check all departure/global timers and return person-level changes."""
+        """Check all departure timers and return person-level changes."""
         changes: list[StateChange] = []
 
         for mac, tracker in self._devices.items():
-            if tracker.state == DeviceState.AWAY:
+            if tracker.state != DeviceState.DEPARTING:
                 continue
-
-            transitioned = False
-
-            if tracker.state == DeviceState.DEPARTING:
-                # Check exit deadline
-                if (
-                    tracker.exit_deadline is not None
-                    and now >= tracker.exit_deadline
-                ):
-                    tracker.state = DeviceState.AWAY
-                    tracker.exit_deadline = None
-                    transitioned = True
-
-                # Check global timeout (time since last connect)
-                if (
-                    not transitioned
-                    and tracker.last_connect_time is not None
-                    and (now - tracker.last_connect_time).total_seconds()
-                    >= self._config.away_timeout
-                ):
-                    tracker.state = DeviceState.AWAY
-                    tracker.exit_deadline = None
-                    transitioned = True
-
-            if transitioned:
+            if (
+                tracker.departure_deadline is not None
+                and now >= tracker.departure_deadline
+            ):
+                tracker.state = DeviceState.AWAY
+                tracker.departure_deadline = None
                 person = self._config.mac_to_person(mac)
                 if person is not None:
-                    new_changes = self._emit_changes(person, mac, tracker.node, now)
-                    changes.extend(new_changes)
+                    changes.extend(self._emit_changes(person, now))
 
         return changes
 
@@ -127,48 +162,19 @@ class PresenceEngine:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _handle_connect(
-        self,
-        tracker: _DeviceTracker,
-        event: PresenceEvent,
-        node_cfg: NodeConfig | None,
-    ) -> None:
-        tracker.state = DeviceState.CONNECTED
-        tracker.node = event.node
-        tracker.last_connect_time = event.timestamp
-        self._event_seq += 1
-        tracker.last_connect_seq = self._event_seq
-        tracker.exit_deadline = None  # cancel any departure timer
-        tracker.last_disconnect_time = None
-
-    def _handle_disconnect(
-        self,
-        tracker: _DeviceTracker,
-        event: PresenceEvent,
-        node_cfg: NodeConfig | None,
-    ) -> None:
-        tracker.state = DeviceState.DEPARTING
-        tracker.last_disconnect_time = event.timestamp
-
-        if node_cfg is not None and node_cfg.type == "exit":
-            # Exit node: set departure deadline
-            assert node_cfg.timeout is not None
-            tracker.exit_deadline = event.timestamp + timedelta(
-                seconds=node_cfg.timeout
-            )
-        else:
-            # Interior or unknown node: no exit deadline
-            tracker.exit_deadline = None
-
     def _compute_person_state(self, name: str) -> PersonState:
-        """Aggregate device states into a person state."""
+        """Aggregate device states into a person state.
+
+        Room is determined by the CONNECTED device with the strongest RSSI.
+        If all devices are DEPARTING, the last known room is preserved.
+        """
         person_cfg = self._config.people.get(name)
         if person_cfg is None:
             return PersonState(home=False, room=None)
 
         home = False
         best_room: str | None = None
-        best_seq: int = -1
+        best_rssi: int = -200  # impossibly low
 
         for mac in person_cfg.macs:
             tracker = self._devices.get(mac)
@@ -178,25 +184,30 @@ class PresenceEngine:
             if tracker.state in (DeviceState.CONNECTED, DeviceState.DEPARTING):
                 home = True
 
-            # Room follows the most recently CONNECTED MAC (by processing order)
-            if tracker.last_connect_seq > best_seq:
-                # Only set room if the device is CONNECTED or DEPARTING
-                if tracker.state in (
-                    DeviceState.CONNECTED,
-                    DeviceState.DEPARTING,
-                ):
-                    node_cfg = self._config.nodes.get(tracker.node)
-                    room = node_cfg.room if node_cfg is not None else None
-                    best_room = room
-                    best_seq = tracker.last_connect_seq
+            # Room follows the CONNECTED device with strongest RSSI
+            if tracker.state == DeviceState.CONNECTED and tracker.rssi > best_rssi:
+                node_cfg = self._config.nodes.get(tracker.node)
+                room = node_cfg.room if node_cfg is not None else None
+                best_room = room
+                best_rssi = tracker.rssi
 
         if not home:
             return PersonState(home=False, room=None)
 
+        # If all devices are DEPARTING (none CONNECTED), fall back to
+        # any DEPARTING device's last known room.
+        if best_room is None:
+            for mac in person_cfg.macs:
+                tracker = self._devices.get(mac)
+                if tracker and tracker.state == DeviceState.DEPARTING:
+                    node_cfg = self._config.nodes.get(tracker.node)
+                    best_room = node_cfg.room if node_cfg is not None else None
+                    break
+
         return PersonState(home=True, room=best_room)
 
     def _emit_changes(
-        self, person: str, mac: str, node: str, timestamp: datetime
+        self, person: str, timestamp: datetime
     ) -> list[StateChange]:
         """Compare computed person state to last published; emit if changed."""
         new_state = self._compute_person_state(person)
@@ -209,13 +220,31 @@ class PresenceEngine:
 
         self._last_person_state[person] = new_state
 
+        # Find the best representative device for the state change
+        person_cfg = self._config.people[person]
+        best_mac = ""
+        best_node = ""
+        best_rssi: int | None = None
+        best_rssi_val = -200
+
+        for mac in person_cfg.macs:
+            tracker = self._devices.get(mac)
+            if tracker is None:
+                continue
+            if tracker.rssi > best_rssi_val:
+                best_mac = mac
+                best_node = tracker.node
+                best_rssi = tracker.rssi
+                best_rssi_val = tracker.rssi
+
         return [
             StateChange(
                 person=person,
                 home=new_state.home,
                 room=new_state.room,
-                mac=mac,
-                node=node,
+                mac=best_mac,
+                node=best_node,
                 timestamp=timestamp,
+                rssi=best_rssi,
             )
         ]

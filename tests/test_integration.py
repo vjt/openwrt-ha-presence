@@ -1,219 +1,227 @@
-"""Integration test: replay realistic event sequences through parser + engine."""
+"""Integration test: replay realistic snapshot sequences through engine."""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
 from openwrt_presence.config import Config
-from openwrt_presence.engine import PresenceEngine, PersonState
-from openwrt_presence.parser import PresenceEvent, parse_hostapd_message
+from openwrt_presence.engine import PresenceEngine, PersonState, StationReading
 
 
 def _ts(minutes: float = 0) -> datetime:
     return datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=minutes)
 
 
-def _parse(msg: str, node: str, ts: datetime) -> PresenceEvent | None:
-    event = parse_hostapd_message(msg, node)
-    if event is not None:
-        # Override timestamp since parse_hostapd_message uses datetime.now()
-        return PresenceEvent(event=event.event, mac=event.mac, node=event.node, timestamp=ts)
-    return None
+def _reading(mac: str, ap: str, rssi: int) -> StationReading:
+    return StationReading(mac=mac, ap=ap, rssi=rssi)
 
 
 def _make_config() -> Config:
     return Config.from_dict({
-        "source": {"type": "victorialogs", "url": "http://localhost:9428"},
+        "source": {"type": "prometheus", "url": "http://localhost:9090"},
         "mqtt": {"host": "localhost", "port": 1883, "topic_prefix": "test"},
         "nodes": {
-            "mowgli": {"room": "garden", "type": "exit", "timeout": 120},
-            "pingu": {"room": "office", "type": "interior"},
-            "albert": {"room": "bedroom", "type": "interior"},
-            "golem": {"room": "livingroom", "type": "interior"},
-            "gordon": {"room": "kitchen", "type": "interior"},
+            "mowgli": {"room": "garden"},
+            "pingu": {"room": "office"},
+            "albert": {"room": "bedroom"},
+            "golem": {"room": "livingroom"},
+            "gordon": {"room": "kitchen"},
         },
-        "away_timeout": 64800,
+        "departure_timeout": 120,
         "people": {
             "alice": {
-                "macs": ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"]
+                "macs": ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"],
             },
             "bob": {
-                "macs": ["aa:bb:cc:dd:ee:03"]
+                "macs": ["aa:bb:cc:dd:ee:03"],
             },
         },
     })
 
 
 class TestArrivalAndRoaming:
-    """Alice arrives home, roams between rooms."""
+    """Alice arrives, roams between rooms based on RSSI, then departs."""
 
     def test_full_arrival_roaming_departure_cycle(self):
         config = _make_config()
         engine = PresenceEngine(config)
-        all_changes = []
 
-        # Alice arrives via garden (exit node)
-        ev = _parse("phy1-ap0: AP-STA-CONNECTED aa:bb:cc:dd:ee:01 auth_alg=open", "mowgli", _ts(0))
-        assert ev is not None
-        changes = engine.process_event(ev)
-        all_changes.extend(changes)
+        # Alice arrives — phone visible on garden AP
+        changes = engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),
+        ])
         assert len(changes) == 1
         assert changes[0].person == "alice"
         assert changes[0].home is True
         assert changes[0].room == "garden"
 
-        # Alice roams to office (disconnect from garden, connect to office)
-        ev = _parse("phy1-ap0: AP-STA-DISCONNECTED aa:bb:cc:dd:ee:01", "mowgli", _ts(1))
-        changes = engine.process_event(ev)
-        all_changes.extend(changes)
-        # Disconnect from exit starts timer but person still home
-        assert changes == []
-
-        ev = _parse("phy1-ap0: AP-STA-CONNECTED aa:bb:cc:dd:ee:01 auth_alg=ft", "pingu", _ts(1))
-        changes = engine.process_event(ev)
-        all_changes.extend(changes)
+        # Alice walks inside — phone visible on office and garden, office stronger
+        changes = engine.process_snapshot(_ts(0.5), [
+            _reading("aa:bb:cc:dd:ee:01", "mowgli", -70),
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
         assert len(changes) == 1
         assert changes[0].room == "office"
 
-        # Alice moves to kitchen via 802.11r fast transition
-        ev = _parse("phy1-ap0: AP-STA-DISCONNECTED aa:bb:cc:dd:ee:01", "pingu", _ts(30))
-        changes = engine.process_event(ev)
-        all_changes.extend(changes)
-        assert changes == []  # interior disconnect, no change
-
-        ev = _parse("phy1-ap0: AP-STA-CONNECTED aa:bb:cc:dd:ee:01 auth_alg=ft", "gordon", _ts(30))
-        changes = engine.process_event(ev)
-        all_changes.extend(changes)
+        # Alice moves to kitchen — only kitchen AP sees her
+        changes = engine.process_snapshot(_ts(1), [
+            _reading("aa:bb:cc:dd:ee:01", "gordon", -42),
+        ])
         assert len(changes) == 1
         assert changes[0].room == "kitchen"
 
-        # Alice's phone goes to doze — disconnects from kitchen
-        ev = _parse("phy1-ap0: AP-STA-DISCONNECTED aa:bb:cc:dd:ee:01", "gordon", _ts(60))
-        changes = engine.process_event(ev)
-        all_changes.extend(changes)
-        assert changes == []  # interior, no change
-
-        # 2 hours pass with phone in doze. Tick should NOT mark away (global timeout is 18h)
-        changes = engine.tick(_ts(180))
-        all_changes.extend(changes)
+        # Stable in kitchen for several polls — no changes
+        changes = engine.process_snapshot(_ts(1.5), [
+            _reading("aa:bb:cc:dd:ee:01", "gordon", -44),
+        ])
         assert changes == []
 
-        # Phone wakes up, reconnects to bedroom
-        ev = _parse("phy1-ap0: AP-STA-CONNECTED aa:bb:cc:dd:ee:01 auth_alg=open", "albert", _ts(180))
-        changes = engine.process_event(ev)
-        all_changes.extend(changes)
+        # Alice goes to garden gate, walks away — last reading from garden
+        changes = engine.process_snapshot(_ts(10), [
+            _reading("aa:bb:cc:dd:ee:01", "mowgli", -65),
+        ])
         assert len(changes) == 1
-        assert changes[0].room == "bedroom"
-        assert changes[0].home is True
+        assert changes[0].room == "garden"
 
-        # Verify final state
+        # Phone goes out of range — empty snapshot
+        changes = engine.process_snapshot(_ts(10.5), [])
+        # DEPARTING — still home, room preserved
+        assert changes == []
         state = engine.get_person_state("alice")
         assert state.home is True
-        assert state.room == "bedroom"
+        assert state.room == "garden"
 
-    def test_departure_via_exit_node(self):
-        config = _make_config()
-        engine = PresenceEngine(config)
-
-        # Alice is home in office
-        ev = _parse("phy1-ap0: AP-STA-CONNECTED aa:bb:cc:dd:ee:01 auth_alg=open", "pingu", _ts(0))
-        engine.process_event(ev)
-
-        # Alice roams to garden (exit node) and leaves
-        ev = _parse("phy1-ap0: AP-STA-DISCONNECTED aa:bb:cc:dd:ee:01", "pingu", _ts(10))
-        engine.process_event(ev)
-        ev = _parse("phy1-ap0: AP-STA-CONNECTED aa:bb:cc:dd:ee:01 auth_alg=ft", "mowgli", _ts(10))
-        engine.process_event(ev)
-
-        # Alice walks out the garden gate, disconnects from garden AP
-        ev = _parse("phy1-ap0: AP-STA-DISCONNECTED aa:bb:cc:dd:ee:01", "mowgli", _ts(15))
-        changes = engine.process_event(ev)
-        assert changes == []  # timer started, not yet away
-
-        # Tick before timeout — still home
-        changes = engine.tick(_ts(16))
+        # Before timeout (120s) — still departing
+        changes = engine.process_snapshot(_ts(11), [])
         assert changes == []
 
-        # Tick after timeout (120 seconds = 2 minutes)
-        changes = engine.tick(_ts(18))
+        # Past timeout (10.5 + 2 = 12.5 min)
+        changes = engine.process_snapshot(_ts(13), [])
         assert len(changes) == 1
         assert changes[0].person == "alice"
         assert changes[0].home is False
         assert changes[0].room is None
 
-        # Subsequent ticks should NOT repeat away
-        changes = engine.tick(_ts(60))
+        # Subsequent empty snapshots — no repeat
+        changes = engine.process_snapshot(_ts(20), [])
         assert changes == []
+
+    def test_rssi_based_room_tracking(self):
+        """Room follows the AP with strongest RSSI, not the first seen."""
+        config = _make_config()
+        engine = PresenceEngine(config)
+
+        # Phone visible on three APs simultaneously
+        changes = engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -60),
+            _reading("aa:bb:cc:dd:ee:01", "albert", -50),
+            _reading("aa:bb:cc:dd:ee:01", "gordon", -70),
+        ])
+        assert len(changes) == 1
+        assert changes[0].room == "bedroom"  # albert has strongest RSSI
+
+        # Next poll: office RSSI improves
+        changes = engine.process_snapshot(_ts(0.5), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -40),
+            _reading("aa:bb:cc:dd:ee:01", "albert", -55),
+        ])
+        assert len(changes) == 1
+        assert changes[0].room == "office"
 
 
 class TestMultiDevice:
     """Alice has two devices (phone + work laptop)."""
 
-    def test_one_device_dozes_other_stays_connected(self):
+    def test_one_device_dozes_other_stays_visible(self):
         config = _make_config()
         engine = PresenceEngine(config)
 
-        # Phone connects to office
-        ev = _parse("phy1-ap0: AP-STA-CONNECTED aa:bb:cc:dd:ee:01 auth_alg=open", "pingu", _ts(0))
-        engine.process_event(ev)
+        # Both devices visible in office
+        changes = engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+            _reading("aa:bb:cc:dd:ee:02", "pingu", -50),
+        ])
+        assert len(changes) == 1
+        assert changes[0].person == "alice"
+        assert changes[0].home is True
 
-        # Laptop connects to office
-        ev = _parse("phy1-ap0: AP-STA-CONNECTED aa:bb:cc:dd:ee:02 auth_alg=open", "pingu", _ts(1))
-        changes = engine.process_event(ev)
-        # No change since already home in office
+        # Phone dozes (disappears), laptop still visible
+        changes = engine.process_snapshot(_ts(1), [
+            _reading("aa:bb:cc:dd:ee:02", "pingu", -50),
+        ])
         assert changes == []
-
-        # Phone dozes
-        ev = _parse("phy1-ap0: AP-STA-DISCONNECTED aa:bb:cc:dd:ee:01", "pingu", _ts(30))
-        changes = engine.process_event(ev)
-        assert changes == []  # laptop still connected
-
         state = engine.get_person_state("alice")
         assert state.home is True
         assert state.room == "office"
 
+        # Even past timeout — laptop keeps alice home
+        changes = engine.process_snapshot(_ts(10), [
+            _reading("aa:bb:cc:dd:ee:02", "pingu", -48),
+        ])
+        assert changes == []
+        state = engine.get_person_state("alice")
+        assert state.home is True
 
-class TestUnknownMacs:
-    """Unknown MAC addresses should be silently ignored throughout."""
-
-    def test_unknown_macs_ignored_in_full_flow(self):
+    def test_devices_in_different_rooms(self):
+        """Room follows strongest RSSI across all devices."""
         config = _make_config()
         engine = PresenceEngine(config)
 
-        # Unknown device connects and disconnects — no changes
-        ev = _parse("phy1-ap0: AP-STA-CONNECTED ff:ff:ff:ff:ff:ff auth_alg=open", "pingu", _ts(0))
-        assert ev is not None
-        changes = engine.process_event(ev)
-        assert changes == []
+        # Phone in bedroom, laptop in office
+        changes = engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "albert", -60),
+            _reading("aa:bb:cc:dd:ee:02", "pingu", -45),  # stronger
+        ])
+        assert len(changes) == 1
+        assert changes[0].room == "office"  # laptop's room, stronger RSSI
 
-        ev = _parse("phy1-ap0: AP-STA-DISCONNECTED ff:ff:ff:ff:ff:ff", "pingu", _ts(5))
-        changes = engine.process_event(ev)
-        assert changes == []
+    def test_both_devices_disappear(self):
+        """Alice only marked away when ALL devices timeout."""
+        config = _make_config()
+        engine = PresenceEngine(config)
 
-        # Known device still works normally
-        ev = _parse("phy1-ap0: AP-STA-CONNECTED aa:bb:cc:dd:ee:01 auth_alg=open", "pingu", _ts(10))
-        changes = engine.process_event(ev)
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+            _reading("aa:bb:cc:dd:ee:02", "pingu", -50),
+        ])
+        # Both disappear
+        engine.process_snapshot(_ts(1), [])
+        # Past timeout
+        changes = engine.process_snapshot(_ts(5), [])
         assert len(changes) == 1
         assert changes[0].person == "alice"
+        assert changes[0].home is False
 
 
-class TestIrrelevantMessages:
-    """Non-hostapd messages should be silently dropped by parser."""
+class TestMultiplePeople:
+    """Alice and Bob tracked independently."""
 
-    def test_irrelevant_messages_dropped(self):
+    def test_simultaneous_presence(self):
         config = _make_config()
         engine = PresenceEngine(config)
 
-        irrelevant = [
-            "phy1-ap0: STA aa:bb:cc:dd:ee:01 WPA: pairwise key handshake completed (RSN)",
-            "phy1-ap0: STA aa:bb:cc:dd:ee:01 IEEE 802.11: authenticated",
-            "nl80211: kernel reports: key addition failed",
-        ]
+        changes = engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+            _reading("aa:bb:cc:dd:ee:03", "albert", -50),
+        ])
+        assert len(changes) == 2
+        persons = {c.person for c in changes}
+        assert persons == {"alice", "bob"}
 
-        for msg in irrelevant:
-            event = parse_hostapd_message(msg, "pingu")
-            assert event is None
+        # Bob leaves, Alice stays
+        changes = engine.process_snapshot(_ts(1), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        # No immediate change (bob is DEPARTING)
+        assert changes == []
 
-        # No state changes should have occurred
+        # Past timeout — only bob goes away
+        changes = engine.process_snapshot(_ts(5), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        assert len(changes) == 1
+        assert changes[0].person == "bob"
+        assert changes[0].home is False
+
         state = engine.get_person_state("alice")
-        assert state.home is False
+        assert state.home is True

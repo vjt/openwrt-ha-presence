@@ -11,14 +11,12 @@ class ConfigError(Exception):
     """Raised when configuration is invalid."""
 
 
-_VALID_SOURCE_TYPES = {"victorialogs", "syslog"}
+_VALID_SOURCE_TYPES = {"prometheus"}
 
 
 @dataclass(frozen=True)
 class NodeConfig:
     room: str
-    type: Literal["exit", "interior"]
-    timeout: int | None = None
 
 
 @dataclass(frozen=True)
@@ -37,9 +35,8 @@ class MqttConfig:
 
 @dataclass(frozen=True)
 class SourceConfig:
-    type: Literal["victorialogs", "syslog"]
+    type: Literal["prometheus"]
     url: str | None = None
-    listen: str | None = None
 
 
 @dataclass
@@ -48,13 +45,22 @@ class Config:
     mqtt: MqttConfig
     nodes: dict[str, NodeConfig]
     people: dict[str, PersonConfig]
-    away_timeout: int
+    departure_timeout: int
     _mac_lookup: dict[str, str] = field(default_factory=dict, repr=False)
 
     @staticmethod
     def _normalize_mac(mac: str) -> str:
         """Lowercase and replace ``-`` with ``:``."""
         return mac.lower().replace("-", ":")
+
+    @property
+    def tracked_macs(self) -> set[str]:
+        """Return uppercase MACs for all tracked people (for PromQL queries)."""
+        return {
+            mac.upper()
+            for person_cfg in self.people.values()
+            for mac in person_cfg.macs
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Config:
@@ -71,7 +77,6 @@ class Config:
         source = SourceConfig(
             type=src_type,
             url=src_raw.get("url"),
-            listen=src_raw.get("listen"),
         )
 
         # --- mqtt ---
@@ -90,16 +95,7 @@ class Config:
             raise ConfigError("At least one node must be configured")
         nodes: dict[str, NodeConfig] = {}
         for name, ndata in nodes_raw.items():
-            node = NodeConfig(
-                room=ndata["room"],
-                type=ndata["type"],
-                timeout=ndata.get("timeout"),
-            )
-            if node.type == "exit" and node.timeout is None:
-                raise ConfigError(
-                    f"Exit node {name!r} requires a timeout value"
-                )
-            nodes[name] = node
+            nodes[name] = NodeConfig(room=ndata["room"])
 
         # --- people ---
         people_raw: dict[str, Any] = data.get("people", {})
@@ -119,15 +115,15 @@ class Config:
                 mac_lookup[mac] = person_name
             people[person_name] = PersonConfig(macs=macs)
 
-        # --- away_timeout ---
-        away_timeout: int = data["away_timeout"]
+        # --- departure_timeout ---
+        departure_timeout: int = data["departure_timeout"]
 
         return cls(
             source=source,
             mqtt=mqtt,
             nodes=nodes,
             people=people,
-            away_timeout=away_timeout,
+            departure_timeout=departure_timeout,
             _mac_lookup=mac_lookup,
         )
 

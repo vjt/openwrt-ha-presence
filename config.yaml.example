@@ -1,9 +1,6 @@
 source:
-  type: victorialogs
-  url: http://victorialogs:9428
-  # For syslog source instead:
-  # type: syslog
-  # listen: 0.0.0.0:514
+  type: prometheus
+  url: http://victoriametrics:8428
 
 mqtt:
   host: mosquitto
@@ -15,25 +12,18 @@ mqtt:
 nodes:
   ap-garden:
     room: garden
-    type: exit
-    timeout: 120
   ap-office:
     room: office
-    type: interior
   ap-bedroom:
     room: bedroom
-    type: interior
   ap-livingroom:
     room: livingroom
-    type: interior
   ap-kitchen:
     room: kitchen
-    type: interior
   ap-laundry:
     room: laundry_room
-    type: interior
 
-away_timeout: 64800  # 18 hours
+departure_timeout: 120  # seconds without signal before marking away
 
 people:
   alice:

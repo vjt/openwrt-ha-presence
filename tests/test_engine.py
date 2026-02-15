@@ -1,24 +1,26 @@
 from datetime import datetime, timezone, timedelta
-import pytest
-from openwrt_presence.config import Config
-from openwrt_presence.engine import PresenceEngine, PersonState, StateChange
-from openwrt_presence.parser import PresenceEvent
+
+from openwrt_presence.engine import (
+    PresenceEngine,
+    PersonState,
+    StationReading,
+)
 
 
-def _event(event_type, mac, node, ts=None):
-    return PresenceEvent(
-        event=event_type, mac=mac, node=node,
-        timestamp=ts or datetime(2026, 1, 1, tzinfo=timezone.utc),
-    )
+def _reading(mac: str, ap: str, rssi: int) -> StationReading:
+    return StationReading(mac=mac, ap=ap, rssi=rssi)
 
-def _ts(minutes=0):
+
+def _ts(minutes: float = 0) -> datetime:
     return datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=minutes)
 
 
-class TestBasicTransitions:
-    def test_connect_marks_person_home(self, sample_config):
+class TestSnapshotBasicTransitions:
+    def test_visible_device_marks_person_home(self, sample_config):
         engine = PresenceEngine(sample_config)
-        changes = engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-office", _ts(0)))
+        changes = engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
         assert len(changes) == 1
         assert changes[0].person == "alice"
         assert changes[0].home is True
@@ -26,145 +28,175 @@ class TestBasicTransitions:
 
     def test_unknown_mac_ignored(self, sample_config):
         engine = PresenceEngine(sample_config)
-        changes = engine.process_event(_event("connect", "ff:ff:ff:ff:ff:ff", "ap-office", _ts(0)))
+        changes = engine.process_snapshot(_ts(0), [
+            _reading("ff:ff:ff:ff:ff:ff", "pingu", -45),
+        ])
         assert changes == []
 
-    def test_unknown_node_treated_as_interior(self, sample_config):
+    def test_unknown_ap_uses_none_room(self, sample_config):
         engine = PresenceEngine(sample_config)
-        changes = engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "unknown-ap", _ts(0)))
+        changes = engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "unknown-ap", -45),
+        ])
         assert len(changes) == 1
         assert changes[0].home is True
+        assert changes[0].room is None
 
-    def test_disconnect_from_interior_keeps_home(self, sample_config):
+    def test_disappear_starts_departing(self, sample_config):
         engine = PresenceEngine(sample_config)
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-office", _ts(0)))
-        changes = engine.process_event(_event("disconnect", "aa:bb:cc:dd:ee:01", "ap-office", _ts(1)))
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        # Empty snapshot — device disappeared
+        changes = engine.process_snapshot(_ts(1), [])
+        # Still home (DEPARTING), no state change yet
         assert changes == []
 
-    def test_room_change_on_roaming(self, sample_config):
+    def test_rssi_included_in_state_change(self, sample_config):
         engine = PresenceEngine(sample_config)
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-office", _ts(0)))
-        engine.process_event(_event("disconnect", "aa:bb:cc:dd:ee:01", "ap-office", _ts(1)))
-        changes = engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-bedroom", _ts(1)))
-        assert len(changes) == 1
-        assert changes[0].room == "bedroom"
-        assert changes[0].home is True
+        changes = engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -42),
+        ])
+        assert changes[0].rssi == -42
 
 
-class TestExitNodeDeparture:
-    def test_disconnect_from_exit_no_immediate_change(self, sample_config):
+class TestDeparture:
+    def test_timeout_marks_away(self, sample_config):
         engine = PresenceEngine(sample_config)
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-garden", _ts(0)))
-        changes = engine.process_event(_event("disconnect", "aa:bb:cc:dd:ee:01", "ap-garden", _ts(1)))
-        assert changes == []
-
-    def test_exit_timeout_marks_away(self, sample_config):
-        engine = PresenceEngine(sample_config)
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-garden", _ts(0)))
-        engine.process_event(_event("disconnect", "aa:bb:cc:dd:ee:01", "ap-garden", _ts(1)))
-        changes = engine.tick(_ts(4))  # 4 min > 2 min timeout
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        # Device disappears
+        engine.process_snapshot(_ts(1), [])
+        # Tick past departure_timeout (120s = 2 min)
+        changes = engine.process_snapshot(_ts(4), [])
         assert len(changes) == 1
         assert changes[0].person == "alice"
         assert changes[0].home is False
         assert changes[0].room is None
 
-    def test_reconnect_before_exit_timeout_cancels(self, sample_config):
+    def test_reappearance_cancels_departure(self, sample_config):
         engine = PresenceEngine(sample_config)
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-garden", _ts(0)))
-        engine.process_event(_event("disconnect", "aa:bb:cc:dd:ee:01", "ap-garden", _ts(1)))
-        changes = engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-office", _ts(2)))
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        # Disappear
+        engine.process_snapshot(_ts(1), [])
+        # Reappear before timeout
+        changes = engine.process_snapshot(_ts(1.5), [
+            _reading("aa:bb:cc:dd:ee:01", "albert", -50),
+        ])
+        # Room changed from office to bedroom
         assert len(changes) == 1
         assert changes[0].home is True
-        assert changes[0].room == "office"
-        # Tick past original timeout — should NOT trigger away
+        assert changes[0].room == "bedroom"
+        # Tick past original deadline — should NOT trigger away
         changes = engine.tick(_ts(10))
         assert changes == []
 
-
-class TestGlobalTimeout:
-    def test_global_timeout_marks_away_from_interior(self):
-        cfg = Config.from_dict({
-            "source": {"type": "victorialogs", "url": "http://localhost:9428"},
-            "mqtt": {"host": "localhost", "port": 1883, "topic_prefix": "test"},
-            "nodes": {"ap-office": {"room": "office", "type": "interior"}},
-            "away_timeout": 600,
-            "people": {"alice": {"macs": ["aa:bb:cc:dd:ee:01"]}},
-        })
-        engine = PresenceEngine(cfg)
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-office", _ts(0)))
-        engine.process_event(_event("disconnect", "aa:bb:cc:dd:ee:01", "ap-office", _ts(1)))
-        changes = engine.tick(_ts(15))  # 15 min > 10 min timeout
-        assert len(changes) == 1
-        assert changes[0].home is False
-
-
-class TestMultiDevicePerson:
-    def test_person_home_if_any_device_connected(self, sample_config):
+    def test_multi_device_all_must_disappear(self, sample_config):
         engine = PresenceEngine(sample_config)
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-office", _ts(0)))
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:02", "ap-bedroom", _ts(1)))
-        engine.process_event(_event("disconnect", "aa:bb:cc:dd:ee:01", "ap-office", _ts(2)))
+        # Both of alice's devices visible
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+            _reading("aa:bb:cc:dd:ee:02", "albert", -50),
+        ])
+        # One disappears, other stays
+        engine.process_snapshot(_ts(1), [
+            _reading("aa:bb:cc:dd:ee:02", "albert", -50),
+        ])
+        # Tick well past timeout — alice still home
+        changes = engine.process_snapshot(_ts(10), [
+            _reading("aa:bb:cc:dd:ee:02", "albert", -50),
+        ])
+        assert changes == []
         state = engine.get_person_state("alice")
         assert state.home is True
 
-    def test_person_away_only_when_all_devices_away(self):
-        cfg = Config.from_dict({
-            "source": {"type": "victorialogs", "url": "http://localhost:9428"},
-            "mqtt": {"host": "localhost", "port": 1883, "topic_prefix": "test"},
-            "nodes": {"ap-garden": {"room": "garden", "type": "exit", "timeout": 60}},
-            "away_timeout": 64800,
-            "people": {"alice": {"macs": ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"]}},
-        })
-        engine = PresenceEngine(cfg)
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-garden", _ts(0)))
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:02", "ap-garden", _ts(0)))
-        engine.process_event(_event("disconnect", "aa:bb:cc:dd:ee:01", "ap-garden", _ts(1)))
-        engine.process_event(_event("disconnect", "aa:bb:cc:dd:ee:02", "ap-garden", _ts(1)))
-        changes = engine.tick(_ts(5))
+
+class TestRoomSelection:
+    def test_best_rssi_wins(self, sample_config):
+        engine = PresenceEngine(sample_config)
+        changes = engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -60),
+            _reading("aa:bb:cc:dd:ee:01", "albert", -45),  # stronger
+        ])
         assert len(changes) == 1
-        assert changes[0].person == "alice"
-        assert changes[0].home is False
+        assert changes[0].room == "bedroom"  # albert's room
 
-    def test_room_follows_most_recent_device(self, sample_config):
+    def test_room_changes_with_rssi(self, sample_config):
         engine = PresenceEngine(sample_config)
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-office", _ts(0)))
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:02", "ap-bedroom", _ts(5)))
-        state = engine.get_person_state("alice")
-        assert state.room == "bedroom"
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        # RSSI now stronger from albert
+        changes = engine.process_snapshot(_ts(1), [
+            _reading("aa:bb:cc:dd:ee:01", "albert", -40),
+        ])
+        assert len(changes) == 1
+        assert changes[0].room == "bedroom"
 
-    def test_room_follows_processing_order_not_timestamp(self, sample_config):
-        """Clock skew: second connect has an earlier timestamp but should still win."""
+    def test_departing_preserves_room(self, sample_config):
         engine = PresenceEngine(sample_config)
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-office", _ts(10)))
-        # Second device connects later but has a skewed timestamp in the past
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:02", "ap-bedroom", _ts(0)))
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        # Device disappears — DEPARTING, but room preserved
+        changes = engine.process_snapshot(_ts(1), [])
+        # No state change (still home, room preserved)
+        assert changes == []
         state = engine.get_person_state("alice")
-        assert state.room == "bedroom"
+        assert state.home is True
+        assert state.room == "office"
 
 
 class TestNoSpuriousChanges:
-    def test_reconnect_to_same_node_no_change(self, sample_config):
+    def test_stable_snapshot_no_repeat(self, sample_config):
         engine = PresenceEngine(sample_config)
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-office", _ts(0)))
-        changes = engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-office", _ts(1)))
+        changes = engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        assert len(changes) == 1
+        # Same snapshot again — no change
+        changes = engine.process_snapshot(_ts(1), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
         assert changes == []
 
-    def test_away_person_coming_home(self, sample_config):
+    def test_away_then_return(self, sample_config):
         engine = PresenceEngine(sample_config)
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-garden", _ts(0)))
-        engine.process_event(_event("disconnect", "aa:bb:cc:dd:ee:01", "ap-garden", _ts(1)))
-        engine.tick(_ts(5))  # now away
-        changes = engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-garden", _ts(10)))
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        # Disappear and timeout
+        engine.process_snapshot(_ts(1), [])
+        engine.process_snapshot(_ts(5), [])  # past 120s timeout
+        # Return
+        changes = engine.process_snapshot(_ts(10), [
+            _reading("aa:bb:cc:dd:ee:01", "albert", -50),
+        ])
         assert len(changes) == 1
         assert changes[0].home is True
-        assert changes[0].room == "garden"
+        assert changes[0].room == "bedroom"
+
+
+class TestTick:
+    def test_tick_expires_departure(self, sample_config):
+        engine = PresenceEngine(sample_config)
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        engine.process_snapshot(_ts(1), [])  # DEPARTING
+        changes = engine.tick(_ts(5))
+        assert len(changes) == 1
+        assert changes[0].home is False
 
     def test_tick_does_not_repeat_away(self, sample_config):
         engine = PresenceEngine(sample_config)
-        engine.process_event(_event("connect", "aa:bb:cc:dd:ee:01", "ap-garden", _ts(0)))
-        engine.process_event(_event("disconnect", "aa:bb:cc:dd:ee:01", "ap-garden", _ts(1)))
-        changes1 = engine.tick(_ts(5))
-        assert len(changes1) == 1
-        # Tick again — should NOT emit another away
-        changes2 = engine.tick(_ts(10))
-        assert changes2 == []
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        engine.process_snapshot(_ts(1), [])  # DEPARTING
+        engine.tick(_ts(5))  # → AWAY
+        changes = engine.tick(_ts(10))
+        assert changes == []
