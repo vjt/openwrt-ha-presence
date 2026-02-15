@@ -44,7 +44,7 @@ async def _run() -> None:
     source = PrometheusSource(
         config.source.url,
         config.tracked_macs,
-        lookback=config.poll_interval * 2,
+        lookback=config.lookback,
     )
 
     # Graceful shutdown on SIGTERM/SIGINT
