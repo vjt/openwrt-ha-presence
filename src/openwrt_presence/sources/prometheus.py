@@ -12,9 +12,10 @@ logger = logging.getLogger(__name__)
 class PrometheusSource:
     """Source adapter that queries a Prometheus-compatible TSDB for RSSI metrics."""
 
-    def __init__(self, url: str, macs: set[str]) -> None:
+    def __init__(self, url: str, macs: set[str], lookback: int = 30) -> None:
         self._url = url.rstrip("/")
         self._macs = macs
+        self._lookback = lookback
 
     def _build_query(self) -> str:
         """Build a PromQL instant query for tracked MACs."""
@@ -27,7 +28,7 @@ class PrometheusSource:
         Returns an empty list on connection errors (caller retries next cycle).
         """
         url = f"{self._url}/api/v1/query"
-        params = {"query": self._build_query()}
+        params = {"query": self._build_query(), "step": f"{self._lookback}s"}
 
         try:
             async with aiohttp.ClientSession() as session:

@@ -41,7 +41,11 @@ async def _run() -> None:
 
     # Create source adapter
     assert config.source.url is not None, "source.url is required"
-    source = PrometheusSource(config.source.url, config.tracked_macs)
+    source = PrometheusSource(
+        config.source.url,
+        config.tracked_macs,
+        lookback=config.poll_interval * 3,
+    )
 
     # Graceful shutdown on SIGTERM/SIGINT
     loop = asyncio.get_event_loop()
