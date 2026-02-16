@@ -20,13 +20,14 @@ def _make_config() -> Config:
     return Config.from_dict({
         "mqtt": {"host": "localhost", "port": 1883, "topic_prefix": "test"},
         "nodes": {
-            "mowgli": {"room": "garden"},
+            "mowgli": {"room": "garden", "exit": True},
             "pingu": {"room": "office"},
             "albert": {"room": "bedroom"},
             "golem": {"room": "livingroom"},
             "gordon": {"room": "kitchen"},
         },
         "departure_timeout": 120,
+        "away_timeout": 600,
         "people": {
             "alice": {
                 "macs": ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"],
@@ -185,8 +186,8 @@ class TestMultiDevice:
         ])
         # Both disappear
         engine.process_snapshot(_ts(1), [])
-        # Past timeout
-        changes = engine.process_snapshot(_ts(5), [])
+        # Past away_timeout (600s) — pingu is interior
+        changes = engine.process_snapshot(_ts(12), [])
         assert len(changes) == 1
         assert changes[0].person == "alice"
         assert changes[0].home is False
@@ -214,8 +215,8 @@ class TestMultiplePeople:
         # No immediate change (bob is DEPARTING)
         assert changes == []
 
-        # Past timeout — only bob goes away
-        changes = engine.process_snapshot(_ts(5), [
+        # Past away_timeout (600s) — albert is interior
+        changes = engine.process_snapshot(_ts(12), [
             _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
         ])
         assert len(changes) == 1
@@ -224,3 +225,68 @@ class TestMultiplePeople:
 
         state = engine.get_person_state("alice")
         assert state.home is True
+
+
+class TestExitInteriorIntegration:
+    """Exit/interior node timeout behavior in realistic scenarios."""
+
+    def test_phone_dozes_on_interior_stays_home(self):
+        """Phone on interior AP disappears briefly — stays home."""
+        config = _make_config()
+        engine = PresenceEngine(config)
+
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        # Phone dozes — disappears for 3 minutes
+        engine.process_snapshot(_ts(1), [])
+        changes = engine.process_snapshot(_ts(4), [])
+        assert changes == []
+        assert engine.get_person_state("alice").home is True
+
+        # Phone wakes up — no state change (was still home)
+        changes = engine.process_snapshot(_ts(5), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -47),
+        ])
+        assert changes == []
+
+    def test_leaves_through_exit_node(self):
+        """Person walks from interior to exit node, leaves — short timeout."""
+        config = _make_config()
+        engine = PresenceEngine(config)
+
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        # Walk to garden
+        engine.process_snapshot(_ts(1), [
+            _reading("aa:bb:cc:dd:ee:01", "mowgli", -60),
+        ])
+        # Disappear from garden
+        engine.process_snapshot(_ts(2), [])
+        # Past departure_timeout (120s)
+        changes = engine.process_snapshot(_ts(5), [])
+        assert len(changes) == 1
+        assert changes[0].home is False
+
+    def test_no_exit_nodes_uses_departure_timeout(self):
+        """Config without exit nodes: all use departure_timeout."""
+        config = Config.from_dict({
+            "mqtt": {"host": "localhost", "port": 1883, "topic_prefix": "test"},
+            "nodes": {
+                "pingu": {"room": "office"},
+                "albert": {"room": "bedroom"},
+            },
+            "departure_timeout": 120,
+            "people": {"alice": {"macs": ["aa:bb:cc:dd:ee:01"]}},
+        })
+        engine = PresenceEngine(config)
+
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        engine.process_snapshot(_ts(1), [])
+        # Past 120s — goes away (no exit nodes, so departure_timeout applies)
+        changes = engine.process_snapshot(_ts(4), [])
+        assert len(changes) == 1
+        assert changes[0].home is False
