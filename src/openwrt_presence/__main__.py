@@ -14,7 +14,7 @@ from openwrt_presence.config import Config
 from openwrt_presence.engine import PresenceEngine
 from openwrt_presence.logging import setup_logging, log_state_change
 from openwrt_presence.mqtt import MqttPublisher
-from openwrt_presence.sources.prometheus import PrometheusSource
+from openwrt_presence.sources.exporters import ExporterSource
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +39,14 @@ async def _run() -> None:
 
     engine = PresenceEngine(config)
 
-    # Create source adapter
-    assert config.source.url is not None, "source.url is required"
-    source = PrometheusSource(
-        config.source.url,
-        config.tracked_macs,
-        lookback=config.lookback,
+    # Create source adapter — scrapes each AP's /metrics endpoint directly
+    source = ExporterSource(
+        node_urls=config.node_urls,
+        tracked_macs={
+            mac
+            for person_cfg in config.people.values()
+            for mac in person_cfg.macs
+        },
     )
 
     # Graceful shutdown on SIGTERM/SIGINT
