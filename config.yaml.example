@@ -1,7 +1,3 @@
-source:
-  type: prometheus
-  url: http://victoriametrics:8428
-
 mqtt:
   host: mosquitto
   port: 1883
@@ -16,6 +12,7 @@ nodes:
     room: office
   ap-bedroom:
     room: bedroom
+    # url: http://192.168.1.50:9100/metrics   # override if no DNS or custom port
   ap-livingroom:
     room: livingroom
   ap-kitchen:
@@ -24,8 +21,8 @@ nodes:
     room: laundry_room
 
 departure_timeout: 120  # seconds without signal before marking away
-poll_interval: 30       # seconds between TSDB queries
-lookback: 15            # seconds of TSDB history per query; must be > scrape interval
+poll_interval: 5         # seconds between AP scrapes
+exporter_port: 9100      # default prometheus-node-exporter-lua port
 
 people:
   alice:

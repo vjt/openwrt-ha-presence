@@ -2,7 +2,7 @@
 
 WiFi-based presence detection for Home Assistant using OpenWrt APs.
 
-Polls RSSI metrics (`wifi_station_signal_dbm`) from a Prometheus-compatible TSDB and publishes per-person home/away state and room location to Home Assistant via MQTT. No cloud, no Bluetooth beacons, no phone polling — just your existing WiFi infrastructure doing what it already knows: which devices are connected and where.
+Scrapes RSSI metrics (`wifi_station_signal_dbm`) directly from each AP's `/metrics` endpoint and publishes per-person home/away state and room location to Home Assistant via MQTT. No cloud, no Bluetooth beacons, no phone polling, no TSDB — just your existing WiFi infrastructure doing what it already knows: which devices are connected and where.
 
 Room detection uses signal strength — your phone is in whichever room has the strongest RSSI reading. Departure detection uses metric disappearance — if a MAC vanishes from all APs for longer than the departure timeout, the person is away.
 
@@ -11,11 +11,11 @@ Room detection uses signal strength — your phone is in whichever room has the 
 ## 🧠 How it works
 
 ```
-OpenWrt APs  -->  telegraf  -->  VictoriaMetrics  -->  openwrt-presence  -->  MQTT  -->  Home Assistant
- (node-exporter-lua)             (Prometheus API)      (state machine)      (discovery)   (device_tracker + sensor)
+OpenWrt APs  -->  openwrt-presence  -->  MQTT  -->  Home Assistant
+ (node-exporter-lua)  (state machine)      (discovery)   (device_tracker + sensor)
 ```
 
-Every ~30 seconds, `openwrt-presence` queries the TSDB for current RSSI readings of tracked MAC addresses. The engine processes each snapshot:
+Every ~5 seconds, `openwrt-presence` scrapes the `/metrics` endpoint on each AP for current RSSI readings of tracked MAC addresses. The engine processes each snapshot:
 
 1. **Visible devices** → marked CONNECTED, room set by strongest RSSI
 2. **Disappeared devices** → marked DEPARTING, departure timer starts
@@ -60,8 +60,6 @@ python -m openwrt_presence
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CONFIG_PATH` | `config.yaml` | Path to config file |
-| `POLL_INTERVAL` | `30` | Seconds between TSDB queries |
-| `SSL_CERT_FILE` | (system) | Path to CA bundle for custom CAs |
 
 The `.example` files are tracked by git; `config.yaml`, `Dockerfile`, and `docker-compose.yaml` are gitignored so you can customise them without dirtying the repo.
 
@@ -69,19 +67,9 @@ The `.example` files are tracked by git; `config.yaml`, `Dockerfile`, and `docke
 
 See [`config.yaml.example`](config.yaml.example) for a full example.
 
-### 📡 Source
-
-Any Prometheus-compatible TSDB works — VictoriaMetrics, Prometheus, Thanos, etc. The metric must be `wifi_station_signal_dbm` with labels `mac` (station MAC) and `instance` (AP hostname).
-
-```yaml
-source:
-  type: prometheus
-  url: http://victoriametrics:8428
-```
-
 ### 📡 Nodes
 
-Each node maps an AP hostname (the `instance` label in metrics) to a room name:
+Each node maps an AP hostname to a room name. The hostname is used to construct the scrape URL: `http://<hostname>:<exporter_port>/metrics`.
 
 ```yaml
 nodes:
@@ -91,11 +79,18 @@ nodes:
     room: office
   ap-bedroom:
     room: bedroom
+    url: http://192.168.1.50:9100/metrics   # override if no DNS or custom port
 ```
+
+Use the `url` override if an AP doesn't have local DNS or uses a non-standard port.
 
 ### ⏱️ Departure timeout
 
 `departure_timeout` (seconds) is how long a device can be absent from all APs before the person is marked away. Default: `120`. This covers brief WiFi dropouts, phone doze cycles, and AP roaming transitions.
+
+### 📡 Exporter port
+
+`exporter_port` (default `9100`) is the port used to construct scrape URLs from AP hostnames. Can be overridden per-node with the `url` field.
 
 ## 🏡 Home Assistant integration
 
@@ -160,27 +155,7 @@ opkg install prometheus-node-exporter-lua prometheus-node-exporter-lua-wifi_stat
 /etc/init.d/prometheus-node-exporter-lua restart
 ```
 
-A metrics scraper (telegraf, prometheus, etc.) should collect from each AP and write to your TSDB.
-
-### 🕐 NTP
-
-APs should have NTP enabled for accurate timestamps in the TSDB. Verify:
-
-```bash
-uci show system.ntp
-```
-
-## 🔒 Custom CA certificates
-
-If your TSDB is behind a reverse proxy with a private CA, uncomment the CA lines in your `Dockerfile`:
-
-```dockerfile
-COPY my-ca.crt /usr/local/share/ca-certificates/
-RUN update-ca-certificates
-ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-```
-
-The `SSL_CERT_FILE` env var is needed because `aiohttp` uses `certifi`'s bundle by default rather than the system store. Because of course it does.
+`openwrt-presence` scrapes each AP directly — no metrics collector or TSDB needed.
 
 ## 🔧 Development
 
