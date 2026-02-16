@@ -4,7 +4,7 @@ WiFi-based presence detection for Home Assistant using OpenWrt APs.
 
 Scrapes RSSI metrics (`wifi_station_signal_dbm`) directly from each AP's `/metrics` endpoint and publishes per-person home/away state and room location to Home Assistant via MQTT. No cloud, no Bluetooth beacons, no phone polling, no TSDB — just your existing WiFi infrastructure doing what it already knows: which devices are connected and where.
 
-Room detection uses signal strength — your phone is in whichever room has the strongest RSSI reading. Departure detection uses metric disappearance — if a MAC vanishes from all APs for longer than the departure timeout, the person is away.
+Room detection uses signal strength — your phone is in whichever room has the strongest RSSI reading. Departure detection uses metric disappearance — if a MAC vanishes from all APs for longer than the departure timeout, the person is away. Exit nodes (like a garden AP) use a short timeout; interior nodes use a long safety-net timeout to ride out phone doze cycles.
 
 ![Home Assistant room tracking history](docs/home-assistant-screenshot.png)
 
@@ -19,10 +19,13 @@ Every ~5 seconds, `openwrt-presence` scrapes the `/metrics` endpoint on each AP 
 
 1. **Visible devices** → marked CONNECTED, room set by strongest RSSI
 2. **Disappeared devices** → marked DEPARTING, departure timer starts
-3. **Timer expires** (default 120s) → marked AWAY
+3. **Timer expires** → marked AWAY
 4. **Reappears** → timer cancelled, back to CONNECTED
 
-All APs are equal — no exit/interior distinction needed. The RSSI metrics tell the full story.
+The departure timer duration depends on the node type:
+- **Exit nodes** (`exit: true`) use `departure_timeout` (default 120s) — the person walked out
+- **Interior nodes** use `away_timeout` (default 18h) — safety net for phone doze
+- **No exit nodes configured** → all nodes use `departure_timeout`
 
 ### 🏠 HA entities created
 
@@ -75,6 +78,7 @@ Each node maps an AP hostname to a room name. The hostname is used to construct 
 nodes:
   ap-garden:
     room: garden
+    exit: true    # departure timer uses departure_timeout (short)
   ap-office:
     room: office
   ap-bedroom:
@@ -82,11 +86,15 @@ nodes:
     url: http://192.168.1.50:9100/metrics   # override if no DNS or custom port
 ```
 
+Nodes marked `exit: true` use the short `departure_timeout` when a device disappears. Interior nodes (default) use the longer `away_timeout` as a safety net against phone doze. If no exit nodes are configured, all nodes use `departure_timeout`.
+
 Use the `url` override if an AP doesn't have local DNS or uses a non-standard port.
 
-### ⏱️ Departure timeout
+### ⏱️ Timeouts
 
-`departure_timeout` (seconds) is how long a device can be absent from all APs before the person is marked away. Default: `120`. This covers brief WiFi dropouts, phone doze cycles, and AP roaming transitions.
+`departure_timeout` (seconds, default `120`) — how long a device can be absent from exit nodes before the person is marked away. Used for exit nodes, or for all nodes if no exit nodes are configured.
+
+`away_timeout` (seconds, default `64800` / 18h) — safety-net timeout for interior nodes. Covers phone doze cycles and brief WiFi dropouts without triggering false departures. Only used when exit nodes are configured.
 
 ### 📡 Exporter port
 

@@ -18,12 +18,17 @@ OpenWrt APs → openwrt-presence → MQTT → Home Assistant
 
 ### Presence detection model
 
-Every poll cycle (~5s), the engine scrapes each AP's `/metrics` endpoint for current RSSI readings of tracked MAC addresses. All nodes are equal — no exit/interior distinction.
+Every poll cycle (~5s), the engine scrapes each AP's `/metrics` endpoint for current RSSI readings of tracked MAC addresses.
 
 - **Visible MAC** → CONNECTED, room determined by strongest RSSI
 - **Disappeared MAC** (was CONNECTED, not in snapshot) → DEPARTING, departure timer starts
-- **Departure timer expires** (`departure_timeout`, default 120s) → AWAY
+- **Departure timer expires** → AWAY
 - **Reappears before timeout** → back to CONNECTED, timer cancelled
+
+**Exit vs interior nodes** (opt-in): Nodes can be marked `exit: true`. When exit nodes are configured:
+- Device last seen on **exit node** → uses `departure_timeout` (short, e.g. 120s)
+- Device last seen on **interior node** → uses `away_timeout` (long safety net, e.g. 18h)
+- If **no exit nodes** configured → all nodes use `departure_timeout` (backward compatible)
 
 Room selection: strongest RSSI among CONNECTED devices for a person. DEPARTING devices preserve last known room as fallback.
 
@@ -43,7 +48,7 @@ Room selection: strongest RSSI among CONNECTED devices for a person. DEPARTING d
 .venv/bin/pytest -v
 ```
 
-58 tests. Engine tests are pure-logic (no I/O). Source tests validate scraping and response parsing. MQTT tests mock paho client.
+74 tests. Engine tests are pure-logic (no I/O). Source tests validate scraping and response parsing. MQTT tests mock paho client.
 
 ## Deployment
 
@@ -52,7 +57,7 @@ Docker Compose. The `.example` files are tracked; actual `Dockerfile`, `docker-c
 ## My setup
 
 - **People**: marcello (AA:BB:CC:11:22:01 personal, AA:BB:CC:11:22:02 work), sara (AA:BB:CC:11:22:03), elene (AA:BB:CC:11:22:04)
-- **Nodes**: mowgli=garden, pingu=office, albert=bedroom, golem=livingroom, gordon=kitchen, parrot=laundry_room
+- **Nodes**: mowgli=garden (exit), pingu=office, albert=bedroom, golem=livingroom, gordon=kitchen, parrot=laundry_room
 - **HA entities**: `device_tracker.openwrt_presence_{marcello,sara,elene}_wifi`, `sensor.openwrt_presence_{name}_room`
 - **Person entities**: `person.marcello_barnaba`, `person.sara_lo_russo`
 - **Docker service name**: eve
@@ -67,7 +72,7 @@ Docker Compose. The `.example` files are tracked; actual `Dockerfile`, `docker-c
 - `_filter_tracked()` filters to configured MACs in Python — no PromQL needed
 - Per-node `url` override allows custom IPs/ports without local DNS
 - RSSI-based room selection: strongest signal among CONNECTED devices determines room, immune to AP clock skew
-- Departure timeout (~120s) is the only timeout — replaces both exit-node timeout and global away_timeout
+- Exit/interior node distinction (opt-in): exit nodes use `departure_timeout`, interior nodes use `away_timeout` (safety net). No exit nodes = all use `departure_timeout`
 - `StateChange` carries the snapshot timestamp, logged as `event_ts` (distinct from log record `ts`)
 - Poll loop uses `asyncio.wait_for(stop_event.wait(), timeout=poll_interval)` — sleeps for poll interval AND wakes immediately on SIGTERM/SIGINT
 - Monitor CLI (`monitor.py`) is pure stdlib, no dependencies — can be run directly with `python3` without pip install

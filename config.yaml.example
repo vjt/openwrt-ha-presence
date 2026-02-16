@@ -8,6 +8,7 @@ mqtt:
 nodes:
   ap-garden:
     room: garden
+    exit: true    # departure timer starts when device disappears from exit nodes
   ap-office:
     room: office
   ap-bedroom:
@@ -20,7 +21,8 @@ nodes:
   ap-laundry:
     room: laundry_room
 
-departure_timeout: 120  # seconds without signal before marking away
+departure_timeout: 120  # seconds — for exit nodes (person walked out)
+away_timeout: 64800      # seconds (18h) — safety net for interior nodes (phone dozed)
 poll_interval: 5         # seconds between AP scrapes
 exporter_port: 9100      # default prometheus-node-exporter-lua port
 
