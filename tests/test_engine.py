@@ -64,7 +64,7 @@ class TestDeparture:
     def test_timeout_marks_away(self, sample_config):
         engine = PresenceEngine(sample_config)
         engine.process_snapshot(_ts(0), [
-            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+            _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),  # exit node
         ])
         # Device disappears
         engine.process_snapshot(_ts(1), [])
@@ -166,7 +166,7 @@ class TestNoSpuriousChanges:
     def test_away_then_return(self, sample_config):
         engine = PresenceEngine(sample_config)
         engine.process_snapshot(_ts(0), [
-            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+            _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),
         ])
         # Disappear and timeout
         engine.process_snapshot(_ts(1), [])
@@ -184,7 +184,7 @@ class TestTick:
     def test_tick_expires_departure(self, sample_config):
         engine = PresenceEngine(sample_config)
         engine.process_snapshot(_ts(0), [
-            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+            _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),
         ])
         engine.process_snapshot(_ts(1), [])  # DEPARTING
         changes = engine.tick(_ts(5))
@@ -194,9 +194,77 @@ class TestTick:
     def test_tick_does_not_repeat_away(self, sample_config):
         engine = PresenceEngine(sample_config)
         engine.process_snapshot(_ts(0), [
-            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+            _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),
         ])
         engine.process_snapshot(_ts(1), [])  # DEPARTING
         engine.tick(_ts(5))  # → AWAY
         changes = engine.tick(_ts(10))
         assert changes == []
+
+
+class TestExitNodeTimeouts:
+    """Departure timeout depends on last-seen node type."""
+
+    def test_exit_node_uses_departure_timeout(self, sample_config):
+        """Device last seen on exit node (mowgli/garden) uses departure_timeout (120s)."""
+        engine = PresenceEngine(sample_config)
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),
+        ])
+        engine.process_snapshot(_ts(1), [])
+        # Past departure_timeout (120s = 2 min) but before away_timeout
+        changes = engine.process_snapshot(_ts(4), [])
+        assert len(changes) == 1
+        assert changes[0].home is False
+
+    def test_interior_node_uses_away_timeout(self, sample_config):
+        """Device last seen on interior node (pingu/office) uses away_timeout (600s = 10 min)."""
+        engine = PresenceEngine(sample_config)
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        engine.process_snapshot(_ts(1), [])
+        # Past departure_timeout (2 min) but before away_timeout (10 min)
+        changes = engine.process_snapshot(_ts(4), [])
+        assert changes == []
+        state = engine.get_person_state("alice")
+        assert state.home is True
+
+    def test_interior_node_eventually_times_out(self, sample_config):
+        """Interior node device does eventually go away after away_timeout."""
+        engine = PresenceEngine(sample_config)
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        engine.process_snapshot(_ts(1), [])
+        # Past away_timeout (600s = 10 min)
+        changes = engine.process_snapshot(_ts(12), [])
+        assert len(changes) == 1
+        assert changes[0].home is False
+
+    def test_device_moves_to_exit_then_disappears(self, sample_config):
+        """Device seen on interior, then exit, then disappears → short timeout."""
+        engine = PresenceEngine(sample_config)
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        engine.process_snapshot(_ts(1), [
+            _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),
+        ])
+        engine.process_snapshot(_ts(2), [])
+        changes = engine.process_snapshot(_ts(5), [])
+        assert len(changes) == 1
+        assert changes[0].home is False
+
+    def test_tick_respects_node_timeout(self, sample_config):
+        """tick() also uses node-aware timeouts."""
+        engine = PresenceEngine(sample_config)
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+        ])
+        engine.process_snapshot(_ts(1), [])  # DEPARTING
+        changes = engine.tick(_ts(4))
+        assert changes == []
+        changes = engine.tick(_ts(12))
+        assert len(changes) == 1
+        assert changes[0].home is False

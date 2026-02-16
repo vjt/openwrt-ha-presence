@@ -103,9 +103,8 @@ class PresenceEngine:
                 continue
             if tracker.state == DeviceState.CONNECTED:
                 tracker.state = DeviceState.DEPARTING
-                tracker.departure_deadline = now + timedelta(
-                    seconds=self._config.departure_timeout
-                )
+                timeout = self._config.timeout_for_node(tracker.node)
+                tracker.departure_deadline = now + timedelta(seconds=timeout)
 
         # Expire DEPARTING → AWAY
         for mac, tracker in self._devices.items():
