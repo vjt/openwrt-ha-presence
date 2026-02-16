@@ -18,7 +18,6 @@ def _reading(mac: str, ap: str, rssi: int) -> StationReading:
 
 def _make_config() -> Config:
     return Config.from_dict({
-        "source": {"type": "prometheus", "url": "http://localhost:9090"},
         "mqtt": {"host": "localhost", "port": 1883, "topic_prefix": "test"},
         "nodes": {
             "mowgli": {"room": "garden"},

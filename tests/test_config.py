@@ -5,7 +5,6 @@ from openwrt_presence.config import Config, ConfigError
 def _base_config(**overrides):
     """Return a valid config dict, with optional overrides."""
     cfg = {
-        "source": {"type": "prometheus", "url": "http://localhost:9090"},
         "mqtt": {"host": "localhost", "port": 1883, "topic_prefix": "test"},
         "nodes": {"ap1": {"room": "room1"}},
         "departure_timeout": 120,
@@ -39,16 +38,33 @@ class TestConfigLoading:
     def test_mac_lookup_normalizes_separators(self, sample_config: Config):
         assert sample_config.mac_to_person("AA-BB-CC-DD-EE-01") == "alice"
 
-    def test_tracked_macs_returns_uppercase(self, sample_config: Config):
-        macs = sample_config.tracked_macs
-        assert isinstance(macs, set)
-        assert "AA:BB:CC:DD:EE:01" in macs
-        assert "AA:BB:CC:DD:EE:02" in macs
-        assert "AA:BB:CC:DD:EE:03" in macs
-        assert len(macs) == 3
-        # All uppercase
-        for mac in macs:
-            assert mac == mac.upper()
+    def test_exporter_port_default(self, sample_config: Config):
+        assert sample_config.exporter_port == 9100
+
+    def test_exporter_port_custom(self):
+        cfg = Config.from_dict(_base_config(exporter_port=9200))
+        assert cfg.exporter_port == 9200
+
+    def test_node_url_default(self, sample_config: Config):
+        assert sample_config.nodes["pingu"].url is None
+
+    def test_node_url_override(self):
+        cfg = Config.from_dict(_base_config(nodes={
+            "ap1": {"room": "room1", "url": "http://192.168.1.10:9100/metrics"},
+        }))
+        assert cfg.nodes["ap1"].url == "http://192.168.1.10:9100/metrics"
+
+    def test_node_urls_property(self):
+        cfg = Config.from_dict(_base_config(
+            nodes={
+                "ap1": {"room": "room1"},
+                "ap2": {"room": "room2", "url": "http://10.0.0.5:9200/metrics"},
+            },
+            exporter_port=9100,
+        ))
+        urls = cfg.node_urls
+        assert urls["ap1"] == "http://ap1:9100/metrics"
+        assert urls["ap2"] == "http://10.0.0.5:9200/metrics"
 
 
 class TestConfigValidation:
@@ -58,10 +74,6 @@ class TestConfigValidation:
                 "alice": {"macs": ["aa:bb:cc:dd:ee:01"]},
                 "bob": {"macs": ["aa:bb:cc:dd:ee:01"]},
             }))
-
-    def test_rejects_unknown_source_type(self):
-        with pytest.raises(ConfigError, match="source"):
-            Config.from_dict(_base_config(source={"type": "nosql_blockchain"}))
 
     def test_rejects_missing_people(self):
         with pytest.raises(ConfigError):

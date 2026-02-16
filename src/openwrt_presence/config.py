@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import yaml
 
@@ -11,12 +11,10 @@ class ConfigError(Exception):
     """Raised when configuration is invalid."""
 
 
-_VALID_SOURCE_TYPES = {"prometheus"}
-
-
 @dataclass(frozen=True)
 class NodeConfig:
     room: str
+    url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -33,21 +31,14 @@ class MqttConfig:
     password: str | None = None
 
 
-@dataclass(frozen=True)
-class SourceConfig:
-    type: Literal["prometheus"]
-    url: str | None = None
-
-
 @dataclass
 class Config:
-    source: SourceConfig
     mqtt: MqttConfig
     nodes: dict[str, NodeConfig]
     people: dict[str, PersonConfig]
     departure_timeout: int
     poll_interval: int = 30
-    lookback: int = 15
+    exporter_port: int = 9100
     _mac_lookup: dict[str, str] = field(default_factory=dict, repr=False)
 
     @staticmethod
@@ -56,30 +47,16 @@ class Config:
         return mac.lower().replace("-", ":")
 
     @property
-    def tracked_macs(self) -> set[str]:
-        """Return uppercase MACs for all tracked people (for PromQL queries)."""
+    def node_urls(self) -> dict[str, str]:
+        """Return resolved metrics URLs for all nodes."""
         return {
-            mac.upper()
-            for person_cfg in self.people.values()
-            for mac in person_cfg.macs
+            name: node.url or f"http://{name}:{self.exporter_port}/metrics"
+            for name, node in self.nodes.items()
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Config:
         """Validate *data* and return a fully-initialised :class:`Config`."""
-
-        # --- source ---
-        src_raw = data.get("source", {})
-        src_type = src_raw.get("type")
-        if src_type not in _VALID_SOURCE_TYPES:
-            raise ConfigError(
-                f"Unknown source type {src_type!r}; "
-                f"expected one of {sorted(_VALID_SOURCE_TYPES)}"
-            )
-        source = SourceConfig(
-            type=src_type,
-            url=src_raw.get("url"),
-        )
 
         # --- mqtt ---
         mqtt_raw = data.get("mqtt", {})
@@ -97,7 +74,7 @@ class Config:
             raise ConfigError("At least one node must be configured")
         nodes: dict[str, NodeConfig] = {}
         for name, ndata in nodes_raw.items():
-            nodes[name] = NodeConfig(room=ndata["room"])
+            nodes[name] = NodeConfig(room=ndata["room"], url=ndata.get("url"))
 
         # --- people ---
         people_raw: dict[str, Any] = data.get("people", {})
@@ -123,17 +100,16 @@ class Config:
         # --- poll_interval ---
         poll_interval: int = data.get("poll_interval", 30)
 
-        # --- lookback ---
-        lookback: int = data.get("lookback", 15)
+        # --- exporter_port ---
+        exporter_port: int = data.get("exporter_port", 9100)
 
         return cls(
-            source=source,
             mqtt=mqtt,
             nodes=nodes,
             people=people,
             departure_timeout=departure_timeout,
             poll_interval=poll_interval,
-            lookback=lookback,
+            exporter_port=exporter_port,
             _mac_lookup=mac_lookup,
         )
 

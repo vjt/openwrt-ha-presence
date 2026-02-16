@@ -6,7 +6,6 @@ from openwrt_presence.config import Config
 @pytest.fixture
 def sample_config() -> Config:
     return Config.from_dict({
-        "source": {"type": "prometheus", "url": "http://localhost:9090"},
         "mqtt": {
             "host": "localhost",
             "port": 1883,
