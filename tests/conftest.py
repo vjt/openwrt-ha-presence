@@ -14,9 +14,10 @@ def sample_config() -> Config:
         "nodes": {
             "albert": {"room": "bedroom"},
             "pingu": {"room": "office"},
-            "mowgli": {"room": "garden"},
+            "mowgli": {"room": "garden", "exit": True},
         },
         "departure_timeout": 120,
+        "away_timeout": 600,
         "people": {
             "alice": {"macs": ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"]},
             "bob": {"macs": ["aa:bb:cc:dd:ee:03"]},

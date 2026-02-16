@@ -15,6 +15,7 @@ class ConfigError(Exception):
 class NodeConfig:
     room: str
     url: str | None = None
+    exit: bool = False
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ class Config:
     nodes: dict[str, NodeConfig]
     people: dict[str, PersonConfig]
     departure_timeout: int
+    away_timeout: int = 64800
     poll_interval: int = 30
     exporter_port: int = 9100
     _mac_lookup: dict[str, str] = field(default_factory=dict, repr=False)
@@ -53,6 +55,25 @@ class Config:
             name: node.url or f"http://{name}:{self.exporter_port}/metrics"
             for name, node in self.nodes.items()
         }
+
+    @property
+    def has_exit_nodes(self) -> bool:
+        """Return True if any node is marked as an exit node."""
+        return any(n.exit for n in self.nodes.values())
+
+    def timeout_for_node(self, node_name: str) -> int:
+        """Return the appropriate timeout for *node_name*.
+
+        If no exit nodes are configured, all nodes use ``departure_timeout``
+        (backward compatible). Otherwise exit nodes use ``departure_timeout``
+        and interior nodes use ``away_timeout``.
+        """
+        if not self.has_exit_nodes:
+            return self.departure_timeout
+        node = self.nodes.get(node_name)
+        if node is not None and node.exit:
+            return self.departure_timeout
+        return self.away_timeout
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Config:
@@ -74,7 +95,11 @@ class Config:
             raise ConfigError("At least one node must be configured")
         nodes: dict[str, NodeConfig] = {}
         for name, ndata in nodes_raw.items():
-            nodes[name] = NodeConfig(room=ndata["room"], url=ndata.get("url"))
+            nodes[name] = NodeConfig(
+                room=ndata["room"],
+                url=ndata.get("url"),
+                exit=ndata.get("exit", False),
+            )
 
         # --- people ---
         people_raw: dict[str, Any] = data.get("people", {})
@@ -97,6 +122,9 @@ class Config:
         # --- departure_timeout ---
         departure_timeout: int = data["departure_timeout"]
 
+        # --- away_timeout ---
+        away_timeout: int = data.get("away_timeout", 64800)
+
         # --- poll_interval ---
         poll_interval: int = data.get("poll_interval", 30)
 
@@ -108,6 +136,7 @@ class Config:
             nodes=nodes,
             people=people,
             departure_timeout=departure_timeout,
+            away_timeout=away_timeout,
             poll_interval=poll_interval,
             exporter_port=exporter_port,
             _mac_lookup=mac_lookup,

@@ -82,3 +82,47 @@ class TestConfigValidation:
     def test_rejects_missing_nodes(self):
         with pytest.raises(ConfigError):
             Config.from_dict(_base_config(nodes={}))
+
+
+class TestExitNodes:
+    def test_node_exit_defaults_to_false(self):
+        cfg = Config.from_dict(_base_config())
+        assert cfg.nodes["ap1"].exit is False
+
+    def test_node_exit_true(self):
+        cfg = Config.from_dict(_base_config(nodes={
+            "ap1": {"room": "garden", "exit": True},
+        }))
+        assert cfg.nodes["ap1"].exit is True
+
+    def test_away_timeout_default(self):
+        cfg = Config.from_dict(_base_config())
+        assert cfg.away_timeout == 64800  # 18 hours
+
+    def test_away_timeout_custom(self):
+        cfg = Config.from_dict(_base_config(away_timeout=3600))
+        assert cfg.away_timeout == 3600
+
+    def test_has_exit_nodes_false_when_none(self):
+        cfg = Config.from_dict(_base_config())
+        assert cfg.has_exit_nodes is False
+
+    def test_has_exit_nodes_true(self):
+        cfg = Config.from_dict(_base_config(nodes={
+            "ap1": {"room": "garden", "exit": True},
+            "ap2": {"room": "office"},
+        }))
+        assert cfg.has_exit_nodes is True
+
+    def test_timeout_for_node_no_exit_nodes(self):
+        cfg = Config.from_dict(_base_config())
+        assert cfg.timeout_for_node("ap1") == 120  # departure_timeout for all
+
+    def test_timeout_for_node_with_exit_nodes(self):
+        cfg = Config.from_dict(_base_config(nodes={
+            "gate": {"room": "garden", "exit": True},
+            "office": {"room": "office"},
+        }))
+        assert cfg.timeout_for_node("gate") == 120       # departure_timeout
+        assert cfg.timeout_for_node("office") == 64800    # away_timeout
+        assert cfg.timeout_for_node("unknown") == 64800   # unknown → interior default
