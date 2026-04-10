@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import io
+import json
+from unittest.mock import AsyncMock
+
+from openwrt_presence.logging import setup_logging
 from openwrt_presence.sources.exporters import ExporterSource
 
 
@@ -76,3 +81,83 @@ class TestMetricsParsing:
         )
         assert len(readings) == 1
         assert readings[0].mac == "aa:bb:cc:11:22:01"
+
+
+def _log_lines(stream: io.StringIO) -> list[dict]:
+    text = stream.getvalue().strip()
+    if not text:
+        return []
+    return [json.loads(line) for line in text.splitlines()]
+
+
+class TestNodeHealthTracking:
+    """Verify that only health transitions produce log output."""
+
+    def _make_one_node_source(self) -> ExporterSource:
+        return ExporterSource(
+            node_urls={"pingu": "http://pingu:9100/metrics"},
+            tracked_macs={"aa:bb:cc:dd:ee:01"},
+        )
+
+    async def test_first_failure_logs_warning(self):
+        stream = io.StringIO()
+        setup_logging(file=stream)
+        source = self._make_one_node_source()
+        source._get_session = lambda: None  # type: ignore[assignment]
+        source._scrape_ap = AsyncMock(side_effect=ConnectionRefusedError())  # type: ignore[method-assign]
+
+        await source.query()
+
+        logs = _log_lines(stream)
+        unreachable = [l for l in logs if l["message"] == "node_unreachable"]
+        assert len(unreachable) == 1
+        assert unreachable[0]["node"] == "pingu"
+        assert unreachable[0]["error"] == "ConnectionRefusedError"
+
+    async def test_repeated_failure_is_silent(self):
+        stream = io.StringIO()
+        setup_logging(file=stream)
+        source = self._make_one_node_source()
+        source._get_session = lambda: None  # type: ignore[assignment]
+        source._scrape_ap = AsyncMock(side_effect=ConnectionRefusedError())  # type: ignore[method-assign]
+
+        await source.query()  # first failure — logs
+        stream.truncate(0)
+        stream.seek(0)
+        await source.query()  # second failure — silent
+
+        logs = _log_lines(stream)
+        assert not any(l.get("message") == "node_unreachable" for l in logs)
+
+    async def test_recovery_logs_info(self):
+        stream = io.StringIO()
+        setup_logging(file=stream)
+        source = self._make_one_node_source()
+        source._get_session = lambda: None  # type: ignore[assignment]
+        source._scrape_ap = AsyncMock(side_effect=ConnectionRefusedError())  # type: ignore[method-assign]
+
+        await source.query()  # goes unhealthy
+        stream.truncate(0)
+        stream.seek(0)
+        source._scrape_ap = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        await source.query()  # recovers
+
+        logs = _log_lines(stream)
+        recovered = [l for l in logs if l["message"] == "node_recovered"]
+        assert len(recovered) == 1
+        assert recovered[0]["node"] == "pingu"
+
+    async def test_healthy_node_no_log(self):
+        stream = io.StringIO()
+        setup_logging(file=stream)
+        source = self._make_one_node_source()
+        source._get_session = lambda: None  # type: ignore[assignment]
+        source._scrape_ap = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+        await source.query()
+
+        logs = _log_lines(stream)
+        assert not any(
+            l.get("message") in ("node_unreachable", "node_recovered")
+            for l in logs
+        )

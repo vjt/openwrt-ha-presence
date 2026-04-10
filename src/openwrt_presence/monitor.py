@@ -33,7 +33,7 @@ def _parse_time(iso: str) -> str:
 
 def _format_state_change(data: dict) -> str:
     person = data.get("person", "?")
-    event = data.get("event", "?")
+    event = data.get("presence", data.get("event", "?"))
     room = data.get("room") or ""
     node = data.get("node", "")
     mac = data.get("mac", "")

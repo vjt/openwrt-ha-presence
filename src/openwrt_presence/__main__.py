@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 import signal
 from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
+import structlog
 
 from openwrt_presence.config import Config
 from openwrt_presence.engine import PresenceEngine
@@ -16,7 +16,7 @@ from openwrt_presence.logging import setup_logging, log_state_change
 from openwrt_presence.mqtt import MqttPublisher
 from openwrt_presence.sources.exporters import ExporterSource
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 async def _run() -> None:
@@ -55,21 +55,21 @@ async def _run() -> None:
     stop_event = asyncio.Event()
 
     def _signal_handler() -> None:
-        logger.info("Shutdown signal received")
+        logger.info("shutdown_signal")
         stop_event.set()
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, _signal_handler)
 
     # Initial query to establish current state
-    logger.info("Initial query to establish current state")
+    logger.info("initial_query")
     readings = await source.query()
     now = datetime.now(timezone.utc)
     changes = engine.process_snapshot(now, readings)
     for change in changes:
         publisher.publish_state(change)
         log_state_change(change)
-    logger.info("Initial state established, starting poll loop (interval=%ds)", config.poll_interval)
+    logger.info("poll_loop_started", interval=config.poll_interval)
 
     # Poll loop
     try:
@@ -83,7 +83,7 @@ async def _run() -> None:
             try:
                 readings = await source.query()
             except Exception:
-                logger.exception("Unexpected error during query")
+                logger.exception("query_error")
                 continue
 
             now = datetime.now(timezone.utc)
@@ -95,7 +95,7 @@ async def _run() -> None:
         await source.close()
         client.loop_stop()
         client.disconnect()
-        logger.info("Shutdown complete")
+        logger.info("shutdown_complete")
 
 
 def main() -> None:

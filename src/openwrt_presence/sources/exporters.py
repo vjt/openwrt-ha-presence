@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import re
 
 import aiohttp
+import structlog
 
 from openwrt_presence.engine import StationReading
-
-logger = logging.getLogger(__name__)
 
 _METRIC_RE = re.compile(
     r'^wifi_station_signal_dbm\{[^}]*mac="([^"]+)"[^}]*\}\s+(-?\d+(?:\.\d+)?)\s*$',
@@ -32,6 +30,8 @@ class ExporterSource:
         self._dns_cache_ttl = dns_cache_ttl
         self._connector: aiohttp.TCPConnector | None = None
         self._session: aiohttp.ClientSession | None = None
+        self._node_healthy: dict[str, bool] = {}
+        self._log: structlog.stdlib.BoundLogger = structlog.get_logger()
 
     def _get_session(self) -> aiohttp.ClientSession:
         if self._connector is None or self._connector.closed:
@@ -56,7 +56,8 @@ class ExporterSource:
     async def query(self) -> list[StationReading]:
         """Scrape all APs in parallel and return station readings.
 
-        APs that fail to respond are silently skipped (logged as warning).
+        Only logs on health transitions: when a node becomes unreachable
+        or recovers.  Repeated failures for the same node are silent.
         """
         readings: list[StationReading] = []
         session = self._get_session()
@@ -68,13 +69,23 @@ class ExporterSource:
             try:
                 ap_readings = await task
                 readings.extend(ap_readings)
+                if not self._node_healthy.get(node, True):
+                    self._log.info("node_recovered", node=node)
+                self._node_healthy[node] = True
             except Exception as exc:
-                logger.warning("Failed to scrape %s: %s", node, exc)
+                was_healthy = self._node_healthy.get(node, True)
+                self._node_healthy[node] = False
+                if was_healthy:
+                    self._log.warning(
+                        "node_unreachable",
+                        node=node,
+                        error=type(exc).__name__,
+                    )
 
         return self._filter_tracked(readings)
 
     async def _scrape_ap(
-        self, session: aiohttp.ClientSession, node: str, url: str
+        self, session: aiohttp.ClientSession, node: str, url: str,
     ) -> list[StationReading]:
         """Scrape a single AP and parse its metrics."""
         async with session.get(url) as response:

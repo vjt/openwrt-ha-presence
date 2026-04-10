@@ -2,73 +2,56 @@
 
 from __future__ import annotations
 
-import json
-import logging
 import sys
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import Any, IO, TYPE_CHECKING
+
+import structlog
 
 if TYPE_CHECKING:
     from openwrt_presence.engine import StateChange
 
 
-class _JSONFormatter(logging.Formatter):
-    """Formats log records as single-line JSON objects."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        obj: dict[str, object] = {
-            "ts": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
-            "level": record.levelname,
-            "message": record.getMessage(),
-        }
-
-        # Merge any extra fields that were passed via the `extra` kwarg.
-        # Standard LogRecord attributes are excluded so only user-supplied
-        # extras appear in the JSON output.
-        _standard = set(logging.LogRecord("", 0, "", 0, None, None, None).__dict__)
-        for key, value in record.__dict__.items():
-            if key not in _standard and key not in obj:
-                obj[key] = value
-
-        return json.dumps(obj, default=str)
+def _uppercase_level(
+    logger: Any, method_name: str, event_dict: dict[str, Any],
+) -> dict[str, Any]:
+    if "level" in event_dict:
+        event_dict["level"] = event_dict["level"].upper()
+    return event_dict
 
 
-def setup_logging(
-    *,
-    handler: logging.Handler | None = None,
-    level: int = logging.INFO,
-) -> None:
-    """Configure the root logger with a JSON formatter.
+def setup_logging(*, file: IO[str] | None = None) -> None:
+    """Configure structlog for JSON output.
 
     Parameters
     ----------
-    handler:
-        A logging handler to attach. When *None* (the default) a
-        ``StreamHandler`` writing to ``stderr`` is used.
-    level:
-        The log level to set on the root logger.
+    file:
+        Output stream.  Defaults to *stderr*.
     """
-    logger = logging.getLogger()
-    logger.setLevel(level)
-
-    if handler is None:
-        handler = logging.StreamHandler(sys.stderr)
-
-    handler.setFormatter(_JSONFormatter())
-    logger.addHandler(handler)
+    structlog.configure(
+        processors=[
+            structlog.stdlib.add_log_level,
+            _uppercase_level,
+            structlog.processors.TimeStamper(fmt="iso", utc=True, key="ts"),
+            structlog.processors.format_exc_info,
+            structlog.processors.EventRenamer("message"),
+            structlog.processors.JSONRenderer(),
+        ],
+        wrapper_class=structlog.stdlib.BoundLogger,
+        logger_factory=structlog.WriteLoggerFactory(
+            file=file if file is not None else sys.stderr,
+        ),
+    )
 
 
 def log_state_change(change: StateChange) -> None:
     """Log a presence state change as a structured JSON line."""
-    logging.info(
+    structlog.get_logger().info(
         "state_change",
-        extra={
-            "person": change.person,
-            "event": "home" if change.home else "away",
-            "room": change.room,
-            "mac": change.mac,
-            "node": change.node,
-            "rssi": change.rssi,
-            "event_ts": change.timestamp.isoformat(),
-        },
+        person=change.person,
+        presence="home" if change.home else "away",
+        room=change.room,
+        mac=change.mac,
+        node=change.node,
+        rssi=change.rssi,
+        event_ts=change.timestamp.isoformat(),
     )
