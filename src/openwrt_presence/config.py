@@ -41,6 +41,7 @@ class Config:
     away_timeout: int = 64800
     poll_interval: int = 30
     exporter_port: int = 9100
+    dns_cache_ttl: int = 300
     _mac_lookup: dict[str, str] = field(default_factory=dict, repr=False)
 
     @staticmethod
@@ -131,6 +132,9 @@ class Config:
         # --- exporter_port ---
         exporter_port: int = data.get("exporter_port", 9100)
 
+        # --- dns_cache_ttl ---
+        dns_cache_ttl: int = data.get("dns_cache_ttl", 300)
+
         return cls(
             mqtt=mqtt,
             nodes=nodes,
@@ -139,6 +143,7 @@ class Config:
             away_timeout=away_timeout,
             poll_interval=poll_interval,
             exporter_port=exporter_port,
+            dns_cache_ttl=dns_cache_ttl,
             _mac_lookup=mac_lookup,
         )
 

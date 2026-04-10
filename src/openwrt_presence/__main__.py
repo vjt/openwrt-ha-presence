@@ -47,6 +47,7 @@ async def _run() -> None:
             for person_cfg in config.people.values()
             for mac in person_cfg.macs
         },
+        dns_cache_ttl=config.dns_cache_ttl,
     )
 
     # Graceful shutdown on SIGTERM/SIGINT
@@ -91,6 +92,7 @@ async def _run() -> None:
                 publisher.publish_state(change)
                 log_state_change(change)
     finally:
+        await source.close()
         client.loop_stop()
         client.disconnect()
         logger.info("Shutdown complete")
