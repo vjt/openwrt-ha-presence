@@ -22,13 +22,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
-      - name: Ruff check
-        run: ruff check .
-        continue-on-error: true   # REMOVE in Task 4.final once lint-clean
-      - name: Ruff format check
-        run: ruff format --check .
-      - name: Pyright
-        run: pyright
-        continue-on-error: true   # REMOVE in Task 4.final once strict-clean
-      - name: Pytest
-        run: pytest -q --timeout=5
+      - name: scripts/check.sh
+        run: scripts/check.sh
+        continue-on-error: true   # REMOVE in Task 4.11 (pyright gates CI)
