@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from openwrt_presence.domain import StationReading
+from openwrt_presence.domain import AwayState, HomeState, StationReading
 from openwrt_presence.engine import PresenceEngine
 
 
@@ -36,7 +36,7 @@ class TestSnapshotBasicTransitions:
         )
         assert changes == []
 
-    def test_unknown_ap_uses_none_room(self, sample_config):
+    def test_unknown_ap_uses_empty_room(self, sample_config):
         engine = PresenceEngine(sample_config)
         changes = engine.process_snapshot(
             _ts(0),
@@ -45,8 +45,8 @@ class TestSnapshotBasicTransitions:
             ],
         )
         assert len(changes) == 1
-        assert changes[0].home is True
-        assert changes[0].room is None
+        assert isinstance(changes[0], HomeState)
+        assert changes[0].room == ""
 
     def test_disappear_starts_departing(self, sample_config):
         engine = PresenceEngine(sample_config)
@@ -88,7 +88,7 @@ class TestDeparture:
         assert len(changes) == 1
         assert changes[0].person == "alice"
         assert changes[0].home is False
-        assert changes[0].room is None
+        assert isinstance(changes[0], AwayState)
 
     def test_reappearance_cancels_departure(self, sample_config):
         engine = PresenceEngine(sample_config)
@@ -362,8 +362,8 @@ class TestGetPersonSnapshot:
             ],
         )
         snap = engine.get_person_snapshot("alice", _ts(0))
+        assert isinstance(snap, HomeState)
         assert snap.person == "alice"
-        assert snap.home is True
         assert snap.room == "office"
         assert snap.mac == "aa:bb:cc:dd:ee:01"
         assert snap.node == "ap-living"
@@ -372,12 +372,10 @@ class TestGetPersonSnapshot:
     def test_snapshot_for_never_seen_person(self, sample_config):
         engine = PresenceEngine(sample_config)
         snap = engine.get_person_snapshot("bob", _ts(0))
+        assert isinstance(snap, AwayState)
         assert snap.person == "bob"
-        assert snap.home is False
-        assert snap.room is None
-        assert snap.mac == ""
-        assert snap.node == ""
-        assert snap.rssi is None
+        assert snap.last_mac is None
+        assert snap.last_node is None
 
     def test_snapshot_for_departed_person(self, sample_config):
         engine = PresenceEngine(sample_config)
@@ -390,11 +388,12 @@ class TestGetPersonSnapshot:
         engine.process_snapshot(_ts(1), [])  # DEPARTING
         engine.process_snapshot(_ts(4), [])  # AWAY (>120s)
         snap = engine.get_person_snapshot("alice", _ts(4))
-        assert snap.home is False
-        assert snap.room is None
+        assert isinstance(snap, AwayState)
+        assert snap.last_mac == "aa:bb:cc:dd:ee:01"
+        assert snap.last_node == "ap-garden"
 
     def test_snapshot_unknown_person(self, sample_config):
         engine = PresenceEngine(sample_config)
         snap = engine.get_person_snapshot("nobody", _ts(0))
+        assert isinstance(snap, AwayState)
         assert snap.person == "nobody"
-        assert snap.home is False

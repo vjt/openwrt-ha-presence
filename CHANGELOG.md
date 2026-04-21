@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🧪 `test_mqtt.py` rewritten asserting on `PublishedMsg` outcomes (audit-log + reconnect-no-relog + idempotency coverage preserved)
 - 🧪 `test_source_exporters.py` rewritten using `aiohttp` test server + dead-port URLs for health tracking (no private-method monkey-patching)
 - 🏷️ Test node names aligned to `ap-*` convention (`ap-garden`/`ap-living`/`ap-bedroom`) — production config untouched
+- 🧬 **`StateChange` is now a discriminated union `HomeState | AwayState`** (C1). `HomeState` carries non-optional `room`/`mac`/`node`/`rssi`; `AwayState` carries optional `last_mac`/`last_node` (both `None` for never-seen persons). Consumers pattern-match on the variant — unrepresentable states (away with RSSI, home without room) are no longer expressible. Audit log schema: `state_computed`/`state_delivered` lines for *never-seen* persons now emit `"mac": null, "node": null, "rssi": null` (previously `""`/`""`/`null`). Active-home and once-seen-now-away entries are byte-identical
 
 ### Fixed (security-critical)
 - 🛡️ **Circuit breaker: all-APs-unreachable (C3).** When every configured AP fails its scrape in the same cycle, `__main__._run` now logs `all_nodes_unreachable` and skips `engine.process_snapshot` for that cycle. Closes the "core switch down arms the alarm on sleeping occupants" class of failure — engine state from the last healthy snapshot is preserved until evidence returns
@@ -37,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration notes
 **Audit log schema change:** the `state_change` message is GONE, replaced by `state_computed` (engine produced a change) and `state_delivered` (MQTT accepted the three topics). `openwrt-monitor` handles both; any external log shipper filtering on `message=state_change` must update its filter. The structured fields (`person`, `presence`, `room`, `mac`, `node`, `rssi`, `event_ts`) are unchanged.
+
+**MQTT `never_seen` attributes payload** (C1): for a person tracked in `config.yaml` who has never been observed on any AP (e.g. fresh startup seed before their phone has connected), the `attributes` topic previously published `{"event_ts": "...", "mac": "", "node": "", "rssi": null}` and now publishes `{"event_ts": "..."}` — the `mac`/`node`/`rssi` keys are dropped entirely. HA template sensors reading `state_attr('device_tracker.alice_wifi', 'mac')` on a never-seen person get `None` instead of `""`. Both values are falsy in Jinja, so `{% if state_attr(...) %}` templates survive unchanged. Home and once-seen-now-away payloads are byte-identical to 0.5.0.
 
 ## [0.5.0] — 2026-04-21
 

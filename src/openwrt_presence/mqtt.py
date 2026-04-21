@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from openwrt_presence.domain import AwayState, HomeState
 from openwrt_presence.logging import log_state_computed, log_state_delivered
 
 if TYPE_CHECKING:
@@ -111,22 +112,37 @@ class MqttPublisher:
         failed — caller uses this to gate the state_delivered audit
         line (see Task 2.6).  Each failure is logged loud.
         """
-        state_value = "home" if change.home else "not_home"
-        room_value = change.room if change.room is not None else ""
+        attrs: dict[str, Any]
+        match change:
+            case HomeState():
+                state_value = "home"
+                room_value: str = change.room
+                attrs = {
+                    "event_ts": change.timestamp.isoformat(),
+                    "mac": change.mac,
+                    "node": change.node,
+                    "rssi": change.rssi,
+                }
+            case AwayState(last_mac=None):
+                state_value = "not_home"
+                room_value = ""
+                attrs = {"event_ts": change.timestamp.isoformat()}
+            case AwayState():
+                state_value = "not_home"
+                room_value = ""
+                attrs = {
+                    "event_ts": change.timestamp.isoformat(),
+                    "mac": change.last_mac,
+                    "node": change.last_node,
+                    "rssi": None,
+                }
 
         topics_payloads = (
             (f"{self._topic_prefix}/{change.person}/state", state_value),
             (f"{self._topic_prefix}/{change.person}/room", room_value),
             (
                 f"{self._topic_prefix}/{change.person}/attributes",
-                json.dumps(
-                    {
-                        "event_ts": change.timestamp.isoformat(),
-                        "mac": change.mac,
-                        "node": change.node,
-                        "rssi": change.rssi,
-                    }
-                ),
+                json.dumps(attrs),
             ),
         )
 

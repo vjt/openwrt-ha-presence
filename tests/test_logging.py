@@ -6,7 +6,15 @@ import io
 import json
 from datetime import UTC, datetime
 
-from openwrt_presence.domain import StateChange
+from openwrt_presence.domain import (
+    AwayState,
+    HomeState,
+    Mac,
+    NodeName,
+    PersonName,
+    Room,
+    StateChange,
+)
 from openwrt_presence.logging import (
     log_state_computed,
     log_state_delivered,
@@ -15,14 +23,20 @@ from openwrt_presence.logging import (
 
 
 def _change(person: str = "alice", home: bool = True) -> StateChange:
-    return StateChange(
-        person=person,
-        home=home,
-        room="garden" if home else None,
-        mac="aa:bb:cc:dd:ee:01",
-        node="ap-garden",
+    if home:
+        return HomeState(
+            person=PersonName(person),
+            room=Room("garden"),
+            mac=Mac("aa:bb:cc:dd:ee:01"),
+            node=NodeName("ap-garden"),
+            timestamp=datetime(2026, 4, 21, 12, 0, 0, tzinfo=UTC),
+            rssi=-55,
+        )
+    return AwayState(
+        person=PersonName(person),
         timestamp=datetime(2026, 4, 21, 12, 0, 0, tzinfo=UTC),
-        rssi=-55 if home else None,
+        last_mac=Mac("aa:bb:cc:dd:ee:01"),
+        last_node=NodeName("ap-garden"),
     )
 
 

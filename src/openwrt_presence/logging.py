@@ -7,6 +7,8 @@ from typing import IO, TYPE_CHECKING, Any
 
 import structlog
 
+from openwrt_presence.domain import AwayState, HomeState
+
 if TYPE_CHECKING:
     from openwrt_presence.domain import StateChange
 
@@ -46,15 +48,27 @@ def setup_logging(*, file: IO[str] | None = None) -> None:
 
 
 def _state_fields(change: StateChange) -> dict[str, Any]:
-    return {
-        "person": change.person,
-        "presence": "home" if change.home else "away",
-        "room": change.room,
-        "mac": change.mac,
-        "node": change.node,
-        "rssi": change.rssi,
-        "event_ts": change.timestamp.isoformat(),
-    }
+    match change:
+        case HomeState():
+            return {
+                "person": change.person,
+                "presence": "home",
+                "room": change.room,
+                "mac": change.mac,
+                "node": change.node,
+                "rssi": change.rssi,
+                "event_ts": change.timestamp.isoformat(),
+            }
+        case AwayState():
+            return {
+                "person": change.person,
+                "presence": "away",
+                "room": None,
+                "mac": change.last_mac,
+                "node": change.last_node,
+                "rssi": None,
+                "event_ts": change.timestamp.isoformat(),
+            }
 
 
 def log_state_computed(change: StateChange) -> None:

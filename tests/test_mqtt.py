@@ -2,14 +2,54 @@ from __future__ import annotations
 
 import io
 import json
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
-from openwrt_presence.domain import StateChange
+from openwrt_presence.domain import (
+    AwayState,
+    HomeState,
+    Mac,
+    NodeName,
+    PersonName,
+    Room,
+    StateChange,
+)
 from openwrt_presence.logging import setup_logging
 from openwrt_presence.mqtt import MqttPublisher
 from tests.fakes import FakeMqttClient, PublishedMsg
+
+
+def _home(
+    person: str = "alice",
+    room: str = "garden",
+    mac: str = "aa:bb:cc:dd:ee:01",
+    node: str = "ap-garden",
+    timestamp: datetime | None = None,
+    rssi: int = -55,
+) -> HomeState:
+    return HomeState(
+        person=PersonName(person),
+        room=Room(room),
+        mac=Mac(mac),
+        node=NodeName(node),
+        timestamp=timestamp or datetime(2026, 4, 21, tzinfo=UTC),
+        rssi=rssi,
+    )
+
+
+def _away(
+    person: str = "alice",
+    last_mac: str | None = "aa:bb:cc:dd:ee:01",
+    last_node: str | None = "ap-garden",
+    timestamp: datetime | None = None,
+) -> AwayState:
+    return AwayState(
+        person=PersonName(person),
+        timestamp=timestamp or datetime(2026, 4, 21, tzinfo=UTC),
+        last_mac=Mac(last_mac) if last_mac is not None else None,
+        last_node=NodeName(last_node) if last_node is not None else None,
+    )
 
 
 @pytest.fixture
@@ -50,17 +90,7 @@ class TestDiscovery:
 class TestStatePublish:
     def test_home_publishes_all_three_topics(self, publisher):
         pub, client = publisher
-        pub.publish_state(
-            StateChange(
-                person="alice",
-                home=True,
-                room="garden",
-                mac="aa:bb:cc:dd:ee:01",
-                node="ap-garden",
-                timestamp=datetime(2026, 4, 21, tzinfo=timezone.utc),
-                rssi=-55,
-            )
-        )
+        pub.publish_state(_home())
         topics = {m.topic for m in client.published}
         assert "openwrt-presence/alice/state" in topics
         assert "openwrt-presence/alice/room" in topics
@@ -68,17 +98,7 @@ class TestStatePublish:
 
     def test_state_payload_home(self, publisher):
         pub, client = publisher
-        pub.publish_state(
-            StateChange(
-                person="alice",
-                home=True,
-                room="garden",
-                mac="aa:bb:cc:dd:ee:01",
-                node="ap-garden",
-                timestamp=datetime(2026, 4, 21, tzinfo=timezone.utc),
-                rssi=-55,
-            )
-        )
+        pub.publish_state(_home())
         state_msg = next(
             m for m in client.published if m.topic == "openwrt-presence/alice/state"
         )
@@ -88,17 +108,7 @@ class TestStatePublish:
 
     def test_state_payload_away(self, publisher):
         pub, client = publisher
-        pub.publish_state(
-            StateChange(
-                person="alice",
-                home=False,
-                room=None,
-                mac="aa:bb:cc:dd:ee:01",
-                node="ap-garden",
-                timestamp=datetime(2026, 4, 21, tzinfo=timezone.utc),
-                rssi=None,
-            )
-        )
+        pub.publish_state(_away())
         state_msg = next(
             m for m in client.published if m.topic == "openwrt-presence/alice/state"
         )
@@ -108,17 +118,7 @@ class TestStatePublish:
 class TestReconnectReseed:
     def test_on_connected_republishes_cached_state(self, publisher):
         pub, client = publisher
-        pub.publish_state(
-            StateChange(
-                person="alice",
-                home=True,
-                room="garden",
-                mac="aa:bb:cc:dd:ee:01",
-                node="ap-garden",
-                timestamp=datetime(2026, 4, 21, tzinfo=timezone.utc),
-                rssi=-55,
-            )
-        )
+        pub.publish_state(_home())
         client.clear()
 
         pub.on_connected()
@@ -146,14 +146,21 @@ class TestAvailability:
 
 
 def _change(person: str, home: bool, room: str | None) -> StateChange:
-    return StateChange(
-        person=person,
-        home=home,
-        room=room,
-        mac="aa:bb:cc:dd:ee:01",
-        node="ap-office" if home else "ap-garden",
-        timestamp=datetime(2026, 2, 12, 10, 0, 0, tzinfo=timezone.utc),
-        rssi=-50 if home else None,
+    if home:
+        assert room is not None
+        return HomeState(
+            person=PersonName(person),
+            room=Room(room),
+            mac=Mac("aa:bb:cc:dd:ee:01"),
+            node=NodeName("ap-office"),
+            timestamp=datetime(2026, 2, 12, 10, 0, 0, tzinfo=UTC),
+            rssi=-50,
+        )
+    return AwayState(
+        person=PersonName(person),
+        timestamp=datetime(2026, 2, 12, 10, 0, 0, tzinfo=UTC),
+        last_mac=Mac("aa:bb:cc:dd:ee:01"),
+        last_node=NodeName("ap-garden"),
     )
 
 
@@ -234,17 +241,7 @@ class TestPublishFailure:
         client.publish_rc = 2  # MQTT_ERR_QUEUE_SIZE
         pub = MqttPublisher(sample_config, client)
 
-        pub.publish_state(
-            StateChange(
-                person="alice",
-                home=True,
-                room="garden",
-                mac="aa:bb:cc:dd:ee:01",
-                node="ap-garden",
-                timestamp=datetime(2026, 4, 21, tzinfo=UTC),
-                rssi=-55,
-            )
-        )
+        pub.publish_state(_home())
 
         failed = [
             json.loads(line)
@@ -267,17 +264,7 @@ class TestPublishFailure:
         client = FakeMqttClient()
         pub = MqttPublisher(sample_config, client)
 
-        pub.publish_state(
-            StateChange(
-                person="alice",
-                home=True,
-                room="garden",
-                mac="aa:bb:cc:dd:ee:01",
-                node="ap-garden",
-                timestamp=datetime(2026, 4, 21, tzinfo=UTC),
-                rssi=-55,
-            )
-        )
+        pub.publish_state(_home())
 
         for line in stream.getvalue().splitlines():
             if not line:
@@ -295,17 +282,7 @@ class TestComputedVsDelivered:
         setup_logging(file=stream)
         client = FakeMqttClient()
         pub = MqttPublisher(sample_config, client)
-        pub.publish_state(
-            StateChange(
-                person="alice",
-                home=True,
-                room="garden",
-                mac="aa:bb:cc:dd:ee:01",
-                node="ap-garden",
-                timestamp=datetime(2026, 4, 21, tzinfo=UTC),
-                rssi=-55,
-            )
-        )
+        pub.publish_state(_home())
         msgs = [
             json.loads(line).get("message")
             for line in stream.getvalue().splitlines()
@@ -320,17 +297,7 @@ class TestComputedVsDelivered:
         client = FakeMqttClient()
         client.publish_rc = 2
         pub = MqttPublisher(sample_config, client)
-        pub.publish_state(
-            StateChange(
-                person="alice",
-                home=True,
-                room="garden",
-                mac="aa:bb:cc:dd:ee:01",
-                node="ap-garden",
-                timestamp=datetime(2026, 4, 21, tzinfo=UTC),
-                rssi=-55,
-            )
-        )
+        pub.publish_state(_home())
         msgs = [
             json.loads(line).get("message")
             for line in stream.getvalue().splitlines()

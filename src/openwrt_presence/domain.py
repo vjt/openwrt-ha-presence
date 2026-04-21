@@ -1,14 +1,18 @@
 """Shared value vocabulary. Engine + sources + mqtt + audit import
 from here; nothing in domain.py imports from any of them.
 
-The `StateChange` discriminated union lands in Task 3.3.
+``StateChange`` is a discriminated union of ``HomeState`` (tracked-device
+visible) and ``AwayState`` (all tracked devices timed out, or the person
+has no tracked devices yet).  Consumers pattern-match on the variant to
+get narrowed access to room/mac/node/rssi — unrepresentable states are
+unrepresentable.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import NewType
+from typing import Literal, NewType
 
 Mac = NewType("Mac", str)  # lowercase, colon-separated; normalized at boundary
 PersonName = NewType("PersonName", str)
@@ -25,15 +29,37 @@ class StationReading:
     rssi: int  # signal strength in dBm
 
 
-@dataclass
-class StateChange:
+@dataclass(frozen=True)
+class HomeState:
+    """Person is home — room/mac/node/rssi all known and non-optional."""
+
     person: PersonName
-    home: bool
-    room: Room | None  # None when away
+    room: Room
     mac: Mac
     node: NodeName
     timestamp: datetime
-    rssi: int | None = None
+    rssi: int
+    home: Literal[True] = True
+
+
+@dataclass(frozen=True)
+class AwayState:
+    """Person is away.
+
+    ``last_mac``/``last_node`` hold the best-representative device's
+    last known location at the moment the person departed, or ``None``
+    if the person has never been tracked (e.g. freshly-configured
+    startup seed).
+    """
+
+    person: PersonName
+    timestamp: datetime
+    last_mac: Mac | None = None
+    last_node: NodeName | None = None
+    home: Literal[False] = False
+
+
+StateChange = HomeState | AwayState
 
 
 @dataclass

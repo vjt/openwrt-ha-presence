@@ -6,6 +6,8 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from openwrt_presence.domain import (
+    AwayState,
+    HomeState,
     Mac,
     NodeName,
     PersonName,
@@ -147,20 +149,30 @@ class PresenceEngine:
         Unlike :meth:`process_snapshot` this always returns a value regardless
         of whether the state has transitioned — it is intended for startup
         seeding and post-reconnect reconciliation.  For a person that has
-        never been seen, the returned change has empty ``mac``/``node`` and
-        ``rssi=None``.
+        never been seen, returns an :class:`AwayState` with
+        ``last_mac``/``last_node`` set to ``None``.
         """
         state = self._compute_person_state(name)
-        mac, node, rssi = self._best_representative(name)
-        return StateChange(
-            person=name,
-            home=state.home,
-            room=state.room,
-            mac=mac,
-            node=node,
-            timestamp=now,
-            rssi=rssi,
-        )
+        rep = self._best_representative(name)
+        if state.home and rep is not None:
+            mac, node, rssi = rep
+            return HomeState(
+                person=name,
+                room=state.room if state.room is not None else Room(""),
+                mac=mac,
+                node=node,
+                timestamp=now,
+                rssi=rssi,
+            )
+        if rep is not None:
+            mac, node, _ = rep
+            return AwayState(
+                person=name,
+                timestamp=now,
+                last_mac=mac,
+                last_node=node,
+            )
+        return AwayState(person=name, timestamp=now)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -168,19 +180,19 @@ class PresenceEngine:
 
     def _best_representative(
         self, person: PersonName
-    ) -> tuple[Mac, NodeName, int | None]:
+    ) -> tuple[Mac, NodeName, int] | None:
         """Pick the strongest-RSSI device for *person* to represent them.
 
-        Returns ``(Mac(""), NodeName(""), None)`` if the person is unknown
-        or has no tracked devices.
+        Returns ``None`` if the person is unknown or has no tracked
+        devices seen yet.  When non-None, ``rssi`` is the device's last
+        recorded RSSI (integer, possibly the default -100 sentinel from
+        the tracker).
         """
         person_cfg = self._config.people.get(person)
         if person_cfg is None:
-            return Mac(""), NodeName(""), None
+            return None
 
-        best_mac: Mac = Mac("")
-        best_node: NodeName = NodeName("")
-        best_rssi: int | None = None
+        best: tuple[Mac, NodeName, int] | None = None
         best_rssi_val = -200
 
         for mac in person_cfg.macs:
@@ -188,12 +200,10 @@ class PresenceEngine:
             if tracker is None:
                 continue
             if tracker.rssi > best_rssi_val:
-                best_mac = mac
-                best_node = tracker.node
-                best_rssi = tracker.rssi
+                best = (mac, tracker.node, tracker.rssi)
                 best_rssi_val = tracker.rssi
 
-        return best_mac, best_node, best_rssi
+        return best
 
     def _compute_person_state(self, name: PersonName) -> PersonState:
         """Aggregate device states into a person state.
@@ -253,15 +263,27 @@ class PresenceEngine:
 
         self._last_person_state[person] = new_state
 
-        mac, node, rssi = self._best_representative(person)
-        return [
-            StateChange(
-                person=person,
-                home=new_state.home,
-                room=new_state.room,
-                mac=mac,
-                node=node,
-                timestamp=timestamp,
-                rssi=rssi,
-            )
-        ]
+        rep = self._best_representative(person)
+        if new_state.home and rep is not None:
+            mac, node, rssi = rep
+            return [
+                HomeState(
+                    person=person,
+                    room=new_state.room if new_state.room is not None else Room(""),
+                    mac=mac,
+                    node=node,
+                    timestamp=timestamp,
+                    rssi=rssi,
+                )
+            ]
+        if rep is not None:
+            mac, node, _ = rep
+            return [
+                AwayState(
+                    person=person,
+                    timestamp=timestamp,
+                    last_mac=mac,
+                    last_node=node,
+                )
+            ]
+        return [AwayState(person=person, timestamp=timestamp)]

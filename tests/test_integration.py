@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from openwrt_presence.config import Config
-from openwrt_presence.domain import StationReading
+from openwrt_presence.domain import AwayState, StationReading
 from openwrt_presence.engine import PresenceEngine
 
 
@@ -118,7 +118,7 @@ class TestArrivalAndRoaming:
         assert len(changes) == 1
         assert changes[0].person == "alice"
         assert changes[0].home is False
-        assert changes[0].room is None
+        assert isinstance(changes[0], AwayState)
 
         # Subsequent empty snapshots — no repeat
         changes = engine.process_snapshot(_ts(20), [])

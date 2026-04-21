@@ -53,7 +53,7 @@
       "topic": "openwrt-presence/bob/room"
     },
     {
-      "payload": "{\"event_ts\": \"2026-04-21T14:00:00+00:00\", \"mac\": \"\", \"node\": \"\", \"rssi\": null}",
+      "payload": "{\"event_ts\": \"2026-04-21T14:00:00+00:00\"}",
       "qos": 1,
       "retain": true,
       "topic": "openwrt-presence/bob/attributes"
