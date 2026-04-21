@@ -20,7 +20,7 @@ class TestSnapshotBasicTransitions:
         changes = engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
         assert len(changes) == 1
@@ -33,7 +33,7 @@ class TestSnapshotBasicTransitions:
         changes = engine.process_snapshot(
             _ts(0),
             [
-                _reading("ff:ff:ff:ff:ff:ff", "pingu", -45),
+                _reading("ff:ff:ff:ff:ff:ff", "ap-living", -45),
             ],
         )
         assert changes == []
@@ -55,7 +55,7 @@ class TestSnapshotBasicTransitions:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
         # Empty snapshot — device disappeared
@@ -68,7 +68,7 @@ class TestSnapshotBasicTransitions:
         changes = engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -42),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -42),
             ],
         )
         assert changes[0].rssi == -42
@@ -80,7 +80,7 @@ class TestDeparture:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),  # exit node
+                _reading("aa:bb:cc:dd:ee:01", "ap-garden", -55),  # exit node
             ],
         )
         # Device disappears
@@ -97,7 +97,7 @@ class TestDeparture:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
         # Disappear
@@ -106,7 +106,7 @@ class TestDeparture:
         changes = engine.process_snapshot(
             _ts(1.5),
             [
-                _reading("aa:bb:cc:dd:ee:01", "albert", -50),
+                _reading("aa:bb:cc:dd:ee:01", "ap-bedroom", -50),
             ],
         )
         # Room changed from office to bedroom
@@ -123,22 +123,22 @@ class TestDeparture:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
-                _reading("aa:bb:cc:dd:ee:02", "albert", -50),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
+                _reading("aa:bb:cc:dd:ee:02", "ap-bedroom", -50),
             ],
         )
         # One disappears, other stays
         engine.process_snapshot(
             _ts(1),
             [
-                _reading("aa:bb:cc:dd:ee:02", "albert", -50),
+                _reading("aa:bb:cc:dd:ee:02", "ap-bedroom", -50),
             ],
         )
         # Tick well past timeout — alice still home
         changes = engine.process_snapshot(
             _ts(10),
             [
-                _reading("aa:bb:cc:dd:ee:02", "albert", -50),
+                _reading("aa:bb:cc:dd:ee:02", "ap-bedroom", -50),
             ],
         )
         assert changes == []
@@ -152,26 +152,26 @@ class TestRoomSelection:
         changes = engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -60),
-                _reading("aa:bb:cc:dd:ee:01", "albert", -45),  # stronger
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -60),
+                _reading("aa:bb:cc:dd:ee:01", "ap-bedroom", -45),  # stronger
             ],
         )
         assert len(changes) == 1
-        assert changes[0].room == "bedroom"  # albert's room
+        assert changes[0].room == "bedroom"  # ap-bedroom's room
 
     def test_room_changes_with_rssi(self, sample_config):
         engine = PresenceEngine(sample_config)
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
-        # RSSI now stronger from albert
+        # RSSI now stronger from ap-bedroom
         changes = engine.process_snapshot(
             _ts(1),
             [
-                _reading("aa:bb:cc:dd:ee:01", "albert", -40),
+                _reading("aa:bb:cc:dd:ee:01", "ap-bedroom", -40),
             ],
         )
         assert len(changes) == 1
@@ -182,7 +182,7 @@ class TestRoomSelection:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
         # Device disappears — DEPARTING, but room preserved
@@ -200,7 +200,7 @@ class TestNoSpuriousChanges:
         changes = engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
         assert len(changes) == 1
@@ -208,7 +208,7 @@ class TestNoSpuriousChanges:
         changes = engine.process_snapshot(
             _ts(1),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
         assert changes == []
@@ -218,7 +218,7 @@ class TestNoSpuriousChanges:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),
+                _reading("aa:bb:cc:dd:ee:01", "ap-garden", -55),
             ],
         )
         # Disappear and timeout
@@ -228,7 +228,7 @@ class TestNoSpuriousChanges:
         changes = engine.process_snapshot(
             _ts(10),
             [
-                _reading("aa:bb:cc:dd:ee:01", "albert", -50),
+                _reading("aa:bb:cc:dd:ee:01", "ap-bedroom", -50),
             ],
         )
         assert len(changes) == 1
@@ -242,7 +242,7 @@ class TestTick:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),
+                _reading("aa:bb:cc:dd:ee:01", "ap-garden", -55),
             ],
         )
         engine.process_snapshot(_ts(1), [])  # DEPARTING
@@ -255,7 +255,7 @@ class TestTick:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),
+                _reading("aa:bb:cc:dd:ee:01", "ap-garden", -55),
             ],
         )
         engine.process_snapshot(_ts(1), [])  # DEPARTING
@@ -268,12 +268,12 @@ class TestExitNodeTimeouts:
     """Departure timeout depends on last-seen node type."""
 
     def test_exit_node_uses_departure_timeout(self, sample_config):
-        """Device last seen on exit node (mowgli/garden) uses departure_timeout (120s)."""
+        """Device last seen on exit node (ap-garden/garden) uses departure_timeout (120s)."""
         engine = PresenceEngine(sample_config)
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),
+                _reading("aa:bb:cc:dd:ee:01", "ap-garden", -55),
             ],
         )
         engine.process_snapshot(_ts(1), [])
@@ -283,12 +283,12 @@ class TestExitNodeTimeouts:
         assert changes[0].home is False
 
     def test_interior_node_uses_away_timeout(self, sample_config):
-        """Device last seen on interior node (pingu/office) uses away_timeout (600s = 10 min)."""
+        """Device last seen on interior node (ap-living/office) uses away_timeout (600s = 10 min)."""
         engine = PresenceEngine(sample_config)
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
         engine.process_snapshot(_ts(1), [])
@@ -304,7 +304,7 @@ class TestExitNodeTimeouts:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
         engine.process_snapshot(_ts(1), [])
@@ -319,13 +319,13 @@ class TestExitNodeTimeouts:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
         engine.process_snapshot(
             _ts(1),
             [
-                _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),
+                _reading("aa:bb:cc:dd:ee:01", "ap-garden", -55),
             ],
         )
         engine.process_snapshot(_ts(2), [])
@@ -339,7 +339,7 @@ class TestExitNodeTimeouts:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
         engine.process_snapshot(_ts(1), [])  # DEPARTING
@@ -360,7 +360,7 @@ class TestGetPersonSnapshot:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -42),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -42),
             ],
         )
         snap = engine.get_person_snapshot("alice", _ts(0))
@@ -368,7 +368,7 @@ class TestGetPersonSnapshot:
         assert snap.home is True
         assert snap.room == "office"
         assert snap.mac == "aa:bb:cc:dd:ee:01"
-        assert snap.node == "pingu"
+        assert snap.node == "ap-living"
         assert snap.rssi == -42
 
     def test_snapshot_for_never_seen_person(self, sample_config):
@@ -386,7 +386,7 @@ class TestGetPersonSnapshot:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),  # exit node
+                _reading("aa:bb:cc:dd:ee:01", "ap-garden", -55),  # exit node
             ],
         )
         engine.process_snapshot(_ts(1), [])  # DEPARTING

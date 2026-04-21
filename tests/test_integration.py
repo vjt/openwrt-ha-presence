@@ -21,9 +21,9 @@ def _make_config() -> Config:
         {
             "mqtt": {"host": "localhost", "port": 1883, "topic_prefix": "test"},
             "nodes": {
-                "mowgli": {"room": "garden", "exit": True},
-                "pingu": {"room": "office"},
-                "albert": {"room": "bedroom"},
+                "ap-garden": {"room": "garden", "exit": True},
+                "ap-living": {"room": "office"},
+                "ap-bedroom": {"room": "bedroom"},
                 "golem": {"room": "livingroom"},
                 "gordon": {"room": "kitchen"},
             },
@@ -52,7 +52,7 @@ class TestArrivalAndRoaming:
         changes = engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),
+                _reading("aa:bb:cc:dd:ee:01", "ap-garden", -55),
             ],
         )
         assert len(changes) == 1
@@ -64,8 +64,8 @@ class TestArrivalAndRoaming:
         changes = engine.process_snapshot(
             _ts(0.5),
             [
-                _reading("aa:bb:cc:dd:ee:01", "mowgli", -70),
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-garden", -70),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
         assert len(changes) == 1
@@ -94,7 +94,7 @@ class TestArrivalAndRoaming:
         changes = engine.process_snapshot(
             _ts(10),
             [
-                _reading("aa:bb:cc:dd:ee:01", "mowgli", -65),
+                _reading("aa:bb:cc:dd:ee:01", "ap-garden", -65),
             ],
         )
         assert len(changes) == 1
@@ -132,20 +132,20 @@ class TestArrivalAndRoaming:
         changes = engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -60),
-                _reading("aa:bb:cc:dd:ee:01", "albert", -50),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -60),
+                _reading("aa:bb:cc:dd:ee:01", "ap-bedroom", -50),
                 _reading("aa:bb:cc:dd:ee:01", "gordon", -70),
             ],
         )
         assert len(changes) == 1
-        assert changes[0].room == "bedroom"  # albert has strongest RSSI
+        assert changes[0].room == "bedroom"  # ap-bedroom has strongest RSSI
 
         # Next poll: office RSSI improves
         changes = engine.process_snapshot(
             _ts(0.5),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -40),
-                _reading("aa:bb:cc:dd:ee:01", "albert", -55),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -40),
+                _reading("aa:bb:cc:dd:ee:01", "ap-bedroom", -55),
             ],
         )
         assert len(changes) == 1
@@ -163,8 +163,8 @@ class TestMultiDevice:
         changes = engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
-                _reading("aa:bb:cc:dd:ee:02", "pingu", -50),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
+                _reading("aa:bb:cc:dd:ee:02", "ap-living", -50),
             ],
         )
         assert len(changes) == 1
@@ -175,7 +175,7 @@ class TestMultiDevice:
         changes = engine.process_snapshot(
             _ts(1),
             [
-                _reading("aa:bb:cc:dd:ee:02", "pingu", -50),
+                _reading("aa:bb:cc:dd:ee:02", "ap-living", -50),
             ],
         )
         assert changes == []
@@ -187,7 +187,7 @@ class TestMultiDevice:
         changes = engine.process_snapshot(
             _ts(10),
             [
-                _reading("aa:bb:cc:dd:ee:02", "pingu", -48),
+                _reading("aa:bb:cc:dd:ee:02", "ap-living", -48),
             ],
         )
         assert changes == []
@@ -203,8 +203,8 @@ class TestMultiDevice:
         changes = engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "albert", -60),
-                _reading("aa:bb:cc:dd:ee:02", "pingu", -45),  # stronger
+                _reading("aa:bb:cc:dd:ee:01", "ap-bedroom", -60),
+                _reading("aa:bb:cc:dd:ee:02", "ap-living", -45),  # stronger
             ],
         )
         assert len(changes) == 1
@@ -218,13 +218,13 @@ class TestMultiDevice:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
-                _reading("aa:bb:cc:dd:ee:02", "pingu", -50),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
+                _reading("aa:bb:cc:dd:ee:02", "ap-living", -50),
             ],
         )
         # Both disappear
         engine.process_snapshot(_ts(1), [])
-        # Past away_timeout (600s) — pingu is interior
+        # Past away_timeout (600s) — ap-living is interior
         changes = engine.process_snapshot(_ts(12), [])
         assert len(changes) == 1
         assert changes[0].person == "alice"
@@ -241,8 +241,8 @@ class TestMultiplePeople:
         changes = engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
-                _reading("aa:bb:cc:dd:ee:03", "albert", -50),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
+                _reading("aa:bb:cc:dd:ee:03", "ap-bedroom", -50),
             ],
         )
         assert len(changes) == 2
@@ -253,17 +253,17 @@ class TestMultiplePeople:
         changes = engine.process_snapshot(
             _ts(1),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
         # No immediate change (bob is DEPARTING)
         assert changes == []
 
-        # Past away_timeout (600s) — albert is interior
+        # Past away_timeout (600s) — ap-bedroom is interior
         changes = engine.process_snapshot(
             _ts(12),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
         assert len(changes) == 1
@@ -285,7 +285,7 @@ class TestExitInteriorIntegration:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
         # Phone dozes — disappears for 3 minutes
@@ -298,7 +298,7 @@ class TestExitInteriorIntegration:
         changes = engine.process_snapshot(
             _ts(5),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -47),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -47),
             ],
         )
         assert changes == []
@@ -311,14 +311,14 @@ class TestExitInteriorIntegration:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
         # Walk to garden
         engine.process_snapshot(
             _ts(1),
             [
-                _reading("aa:bb:cc:dd:ee:01", "mowgli", -60),
+                _reading("aa:bb:cc:dd:ee:01", "ap-garden", -60),
             ],
         )
         # Disappear from garden
@@ -334,8 +334,8 @@ class TestExitInteriorIntegration:
             {
                 "mqtt": {"host": "localhost", "port": 1883, "topic_prefix": "test"},
                 "nodes": {
-                    "pingu": {"room": "office"},
-                    "albert": {"room": "bedroom"},
+                    "ap-living": {"room": "office"},
+                    "ap-bedroom": {"room": "bedroom"},
                 },
                 "departure_timeout": 120,
                 "people": {"alice": {"macs": ["aa:bb:cc:dd:ee:01"]}},
@@ -346,7 +346,7 @@ class TestExitInteriorIntegration:
         engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
             ],
         )
         engine.process_snapshot(_ts(1), [])

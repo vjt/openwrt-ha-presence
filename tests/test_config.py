@@ -22,9 +22,9 @@ class TestConfigLoading:
         assert len(sample_config.nodes) == 3
 
     def test_node_properties(self, sample_config: Config):
-        bedroom = sample_config.nodes["albert"]
+        bedroom = sample_config.nodes["ap-bedroom"]
         assert bedroom.room == "bedroom"
-        office = sample_config.nodes["pingu"]
+        office = sample_config.nodes["ap-living"]
         assert office.room == "office"
 
     def test_person_mac_lookup(self, sample_config: Config):
@@ -47,7 +47,7 @@ class TestConfigLoading:
         assert cfg.exporter_port == 9200
 
     def test_node_url_default(self, sample_config: Config):
-        assert sample_config.nodes["pingu"].url is None
+        assert sample_config.nodes["ap-living"].url is None
 
     def test_node_url_override(self):
         cfg = Config.from_dict(

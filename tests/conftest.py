@@ -17,17 +17,17 @@ def sample_config() -> Config:
     """Canonical config for integration tests.
 
     Nodes:
-      - mowgli (exit, room=garden)
-      - pingu (interior, room=office)
-      - albert (interior, room=bedroom)
+      - ap-garden (exit, room=garden)
+      - ap-living (interior, room=office)
+      - ap-bedroom (interior, room=bedroom)
     People:
       - alice (2 MACs)
       - bob (1 MAC)
     """
     nodes = {
-        "albert": NodeConfig(room="bedroom"),
-        "pingu": NodeConfig(room="office"),
-        "mowgli": NodeConfig(room="garden", exit=True),
+        "ap-bedroom": NodeConfig(room="bedroom"),
+        "ap-living": NodeConfig(room="office"),
+        "ap-garden": NodeConfig(room="garden", exit=True),
     }
     people = {
         "alice": PersonConfig(macs=["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"]),
