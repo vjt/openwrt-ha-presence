@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from openwrt_presence.logging import log_state_change
+
 if TYPE_CHECKING:
     from openwrt_presence.config import Config
     from openwrt_presence.engine import StateChange
@@ -84,10 +86,13 @@ class MqttPublisher:
         """Publish state, room, and attributes for a person.
 
         The change is cached so :meth:`on_connected` can replay it after a
-        reconnect.
+        reconnect.  Also writes the audit log line — this is the single
+        code path for "told HA about a person's state" so callers can
+        never forget one half.
         """
         self._last_state[change.person] = change
         self._emit_state(change)
+        log_state_change(change)
 
     def _emit_state(self, change: StateChange) -> None:
         state_value = "home" if change.home else "not_home"

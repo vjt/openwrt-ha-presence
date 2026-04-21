@@ -1,9 +1,11 @@
+import io
 import json
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, call
 
 from openwrt_presence.config import Config
 from openwrt_presence.engine import StateChange
+from openwrt_presence.logging import setup_logging
 from openwrt_presence.mqtt import MqttPublisher
 
 _TS = datetime(2026, 2, 12, 10, 0, 0, tzinfo=timezone.utc)
@@ -252,6 +254,42 @@ class TestMqttStateCacheAndReconnect:
         assert "openwrt-presence/bob/state" in topics
         assert "openwrt-presence/alice/room" in topics
         assert "openwrt-presence/alice/attributes" in topics
+
+    def test_publish_state_writes_audit_log_line(self, sample_config):
+        """publish_state is the single gate that emits + logs.  Callers
+        must not have to remember to log separately."""
+        stream = io.StringIO()
+        setup_logging(file=stream)
+        mock_client = MagicMock()
+        publisher = MqttPublisher(sample_config, mock_client)
+        publisher.publish_state(self._change("alice", True, "office"))
+
+        lines = [line for line in stream.getvalue().splitlines() if line]
+        state_change_lines = [
+            json.loads(line) for line in lines
+            if json.loads(line).get("message") == "state_change"
+        ]
+        assert len(state_change_lines) == 1
+        assert state_change_lines[0]["person"] == "alice"
+        assert state_change_lines[0]["presence"] == "home"
+
+    def test_on_connected_does_not_relog_cached_state(self, sample_config):
+        """Reconnect republishing is protocol-level; the state_change
+        already happened and was already logged when publish_state ran."""
+        mock_client = MagicMock()
+        publisher = MqttPublisher(sample_config, mock_client)
+        publisher.publish_state(self._change("alice", True, "office"))
+
+        stream = io.StringIO()
+        setup_logging(file=stream)
+        publisher.on_connected()
+
+        for line in stream.getvalue().splitlines():
+            if not line:
+                continue
+            data = json.loads(line)
+            assert data.get("message") != "state_change", \
+                f"on_connected must not emit state_change: {data}"
 
     def test_on_connected_idempotent(self, sample_config):
         """Two calls to on_connected must issue the same publishes each time."""

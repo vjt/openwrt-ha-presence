@@ -12,7 +12,7 @@ import structlog
 
 from openwrt_presence.config import Config
 from openwrt_presence.engine import PresenceEngine
-from openwrt_presence.logging import setup_logging, log_state_change
+from openwrt_presence.logging import setup_logging
 from openwrt_presence.mqtt import MqttPublisher
 from openwrt_presence.sources.exporters import ExporterSource
 
@@ -85,7 +85,6 @@ async def _run() -> None:
     for person in config.people:
         snapshot = engine.get_person_snapshot(person, now)
         publisher.publish_state(snapshot)
-        log_state_change(snapshot)
 
     logger.info("poll_loop_started", interval=config.poll_interval)
 
@@ -107,7 +106,6 @@ async def _run() -> None:
             changes = engine.process_snapshot(now, readings)
             for change in changes:
                 publisher.publish_state(change)
-                log_state_change(change)
     finally:
         await source.close()
         client.loop_stop()
