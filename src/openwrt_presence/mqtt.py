@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+import structlog
+
 from openwrt_presence.logging import log_state_change
 
 if TYPE_CHECKING:
@@ -11,6 +13,8 @@ if TYPE_CHECKING:
 
 
 _QOS = 1
+
+_log = structlog.get_logger()
 
 
 class MqttPublisher:
@@ -94,35 +98,45 @@ class MqttPublisher:
         self._emit_state(change)
         log_state_change(change)
 
-    def _emit_state(self, change: StateChange) -> None:
+    def _emit_state(self, change: StateChange) -> bool:
+        """Publish the 3 topics for a person's state change.
+
+        Returns True iff every publish returned rc == 0 (paho accepted
+        the message for delivery).  Returns False if ANY topic publish
+        failed — caller uses this to gate the state_delivered audit
+        line (see Task 2.6).  Each failure is logged loud.
+        """
         state_value = "home" if change.home else "not_home"
         room_value = change.room if change.room is not None else ""
 
-        self._client.publish(
-            f"{self._topic_prefix}/{change.person}/state",
-            state_value,
-            qos=_QOS,
-            retain=True,
-        )
-        self._client.publish(
-            f"{self._topic_prefix}/{change.person}/room",
-            room_value,
-            qos=_QOS,
-            retain=True,
-        )
-        self._client.publish(
-            f"{self._topic_prefix}/{change.person}/attributes",
-            json.dumps(
-                {
-                    "event_ts": change.timestamp.isoformat(),
-                    "mac": change.mac,
-                    "node": change.node,
-                    "rssi": change.rssi,
-                }
+        topics_payloads = (
+            (f"{self._topic_prefix}/{change.person}/state", state_value),
+            (f"{self._topic_prefix}/{change.person}/room", room_value),
+            (
+                f"{self._topic_prefix}/{change.person}/attributes",
+                json.dumps(
+                    {
+                        "event_ts": change.timestamp.isoformat(),
+                        "mac": change.mac,
+                        "node": change.node,
+                        "rssi": change.rssi,
+                    }
+                ),
             ),
-            qos=_QOS,
-            retain=True,
         )
+
+        all_ok = True
+        for topic, payload in topics_payloads:
+            info = self._client.publish(topic, payload, qos=_QOS, retain=True)
+            if info.rc != 0:
+                all_ok = False
+                _log.error(
+                    "publish_failed",
+                    topic=topic,
+                    rc=info.rc,
+                    person=change.person,
+                )
+        return all_ok
 
     def publish_online(self) -> None:
         """Publish 'online' to the availability topic."""

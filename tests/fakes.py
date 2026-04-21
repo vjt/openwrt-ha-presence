@@ -39,6 +39,7 @@ class FakeMqttClient:
         self.password: str | None = None
         self.reconnect_delay: tuple[int, int] | None = None
         self.max_queued: int | None = None
+        self.publish_rc: int = 0
 
     # ------------ paho surface ------------
 
@@ -76,7 +77,7 @@ class FakeMqttClient:
         self.published.append(
             PublishedMsg(topic=topic, payload=str(payload), qos=qos, retain=retain)
         )
-        return _FakePublishResult(rc=0, mid=len(self.published))
+        return _FakePublishResult(rc=self.publish_rc, mid=len(self.published))
 
     # paho sets these as attributes; we record them
     @property

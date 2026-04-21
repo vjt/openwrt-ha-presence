@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import io
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 import pytest
 
@@ -211,3 +211,66 @@ class TestAudit:
 
         assert first_count == second_count
         assert first_count > 0
+
+
+class TestPublishFailure:
+    """publish() returning non-zero rc means paho couldn't even enqueue
+    the message. That is a silent data loss class of bug on the alarm
+    path — must surface loud via publish_failed."""
+
+    def test_nonzero_rc_emits_publish_failed(self, sample_config):
+        stream = io.StringIO()
+        setup_logging(file=stream)
+        client = FakeMqttClient()
+        client.publish_rc = 2  # MQTT_ERR_QUEUE_SIZE
+        pub = MqttPublisher(sample_config, client)
+
+        pub.publish_state(
+            StateChange(
+                person="alice",
+                home=True,
+                room="garden",
+                mac="aa:bb:cc:dd:ee:01",
+                node="ap-garden",
+                timestamp=datetime(2026, 4, 21, tzinfo=UTC),
+                rssi=-55,
+            )
+        )
+
+        failed = [
+            json.loads(line)
+            for line in stream.getvalue().splitlines()
+            if line and json.loads(line).get("message") == "publish_failed"
+        ]
+        # One publish_failed per failed topic (3 topics: state/room/attributes)
+        assert len(failed) == 3
+        assert {f["topic"] for f in failed} == {
+            "openwrt-presence/alice/state",
+            "openwrt-presence/alice/room",
+            "openwrt-presence/alice/attributes",
+        }
+        assert all(f["rc"] == 2 for f in failed)
+        assert all(f["person"] == "alice" for f in failed)
+
+    def test_rc_zero_no_publish_failed(self, sample_config):
+        stream = io.StringIO()
+        setup_logging(file=stream)
+        client = FakeMqttClient()
+        pub = MqttPublisher(sample_config, client)
+
+        pub.publish_state(
+            StateChange(
+                person="alice",
+                home=True,
+                room="garden",
+                mac="aa:bb:cc:dd:ee:01",
+                node="ap-garden",
+                timestamp=datetime(2026, 4, 21, tzinfo=UTC),
+                rssi=-55,
+            )
+        )
+
+        for line in stream.getvalue().splitlines():
+            if not line:
+                continue
+            assert json.loads(line).get("message") != "publish_failed"
