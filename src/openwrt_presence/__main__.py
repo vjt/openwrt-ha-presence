@@ -35,6 +35,12 @@ async def _run() -> None:
     publisher = MqttPublisher(config, client)
     engine = PresenceEngine(config)
 
+    # Bind asyncio loop before wiring paho callbacks — _on_connect runs
+    # on paho's network thread and must hop back here via
+    # loop.call_soon_threadsafe to touch publisher state (C2).
+    loop = asyncio.get_running_loop()
+    stop_event = asyncio.Event()
+
     def _on_connect(
         client: mqtt.Client,
         userdata,
@@ -43,10 +49,14 @@ async def _run() -> None:
         properties=None,
     ) -> None:
         logger.info("mqtt_connected", reason_code=str(reason_code))
-        try:
-            publisher.on_connected()
-        except Exception:
-            logger.exception("on_connected_failed")
+
+        def _reseed() -> None:
+            try:
+                publisher.on_connected()
+            except Exception:
+                logger.exception("on_connected_failed")
+
+        loop.call_soon_threadsafe(_reseed)
 
     def _on_disconnect(
         client: mqtt.Client,
@@ -72,9 +82,6 @@ async def _run() -> None:
         },
         dns_cache_ttl=config.dns_cache_ttl,
     )
-
-    loop = asyncio.get_running_loop()
-    stop_event = asyncio.Event()
 
     def _signal_handler() -> None:
         logger.info("shutdown_signal")

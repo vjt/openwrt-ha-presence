@@ -40,3 +40,14 @@ def test_paho_logger_enabled():
     """Guard that paho's internal logger is wired so errors surface (H7)."""
     src = inspect.getsource(eve_main._run)
     assert "enable_logger" in src
+
+
+def test_on_connect_schedules_via_call_soon_threadsafe():
+    """on_connected must run on asyncio loop, not paho thread (C2).
+
+    publisher._last_state is mutated by publish_state() on the asyncio
+    loop — if paho's on_connect thread calls on_connected() directly it
+    races. The hop via loop.call_soon_threadsafe serialises back.
+    """
+    src = inspect.getsource(eve_main._run)
+    assert "call_soon_threadsafe" in src
