@@ -59,14 +59,21 @@ def publisher(sample_config) -> tuple[MqttPublisher, FakeMqttClient]:
 
 
 class TestLwt:
-    def test_lwt_set_at_construction(self, publisher):
-        _, client = publisher
-        assert client.lwt == PublishedMsg(
-            topic="openwrt-presence/status",
-            payload="offline",
-            qos=1,
-            retain=True,
-        )
+    def test_publisher_constructor_does_not_set_lwt(self, sample_config):
+        """H1: constructor must not mutate the paho client.  LWT wiring
+        lives in the caller (_run) to make the 'before connect_async'
+        ordering constraint explicit and testable."""
+        client = FakeMqttClient()
+        MqttPublisher(sample_config, client)
+        assert client.lwt is None
+
+    def test_availability_topic_is_public(self, publisher):
+        pub, _ = publisher
+        assert pub.availability_topic == "openwrt-presence/status"
+
+    def test_lwt_constants_are_strings(self):
+        assert MqttPublisher.OFFLINE_PAYLOAD == "offline"
+        assert MqttPublisher.ONLINE_PAYLOAD == "online"
 
 
 class TestDiscovery:

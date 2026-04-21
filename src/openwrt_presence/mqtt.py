@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 import structlog
 
@@ -27,7 +27,15 @@ class MqttPublisher:
 
     Maintains an in-process cache of the last :class:`StateChange` per
     person so ``on_connected`` can re-seed the broker after a (re)connection.
+
+    Does NOT wire the LWT in ``__init__`` — the caller must call
+    ``client.will_set(publisher.availability_topic, publisher.OFFLINE_PAYLOAD,
+    qos=1, retain=True)`` BEFORE ``connect_async``.  Keeping this out of
+    the constructor makes the ordering constraint explicit (H1).
     """
+
+    OFFLINE_PAYLOAD: Final[str] = "offline"
+    ONLINE_PAYLOAD: Final[str] = "online"
 
     def __init__(self, config: Config, client: Any) -> None:
         self._config = config
@@ -35,15 +43,8 @@ class MqttPublisher:
         self._topic_prefix = config.mqtt.topic_prefix
         self._last_state: dict[PersonName, StateChange] = {}
 
-        self._client.will_set(
-            f"{self._topic_prefix}/status",
-            payload="offline",
-            qos=_QOS,
-            retain=True,
-        )
-
     @property
-    def _availability_topic(self) -> str:
+    def availability_topic(self) -> str:
         return f"{self._topic_prefix}/status"
 
     @staticmethod
@@ -70,7 +71,7 @@ class MqttPublisher:
             "payload_home": "home",
             "payload_not_home": "not_home",
             "source_type": "router",
-            "availability_topic": self._availability_topic,
+            "availability_topic": self.availability_topic,
             "device": self._device_block(),
         }
         self._client.publish(topic, json.dumps(payload), qos=_QOS, retain=True)
@@ -81,7 +82,7 @@ class MqttPublisher:
             "name": f"{person.title()} Room",
             "unique_id": f"openwrt_presence_{person}_room",
             "state_topic": f"{self._topic_prefix}/{person}/room",
-            "availability_topic": self._availability_topic,
+            "availability_topic": self.availability_topic,
             "icon": "mdi:map-marker",
             "device": self._device_block(),
         }
@@ -162,8 +163,8 @@ class MqttPublisher:
     def publish_online(self) -> None:
         """Publish 'online' to the availability topic."""
         self._client.publish(
-            self._availability_topic,
-            "online",
+            self.availability_topic,
+            self.ONLINE_PAYLOAD,
             qos=_QOS,
             retain=True,
         )

@@ -120,3 +120,38 @@ async def test_reconnect_triggers_republish(sample_config):
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task
+
+
+@pytest.mark.timeout(5)
+async def test_run_wires_lwt_before_connect(sample_config):
+    """H1: LWT must be set via will_set BEFORE connect_async, else paho
+    never transmits it to the broker and HA never marks us unavailable
+    on crash."""
+
+    class OrderedFakeClient(FakeMqttClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.events: list[str] = []
+
+        def will_set(self, topic, payload, qos=0, retain=False):
+            self.events.append("will_set")
+            super().will_set(topic, payload, qos, retain)
+
+        def connect_async(self, host, port):
+            self.events.append("connect_async")
+            super().connect_async(host, port)
+
+    client = OrderedFakeClient()
+    source = FakeSource()
+    await _run_briefly(sample_config, client, source, wait=0.1)
+
+    # will_set must appear BEFORE connect_async (paho records it for the
+    # CONNECT packet; setting it after has no effect).
+    assert "will_set" in client.events
+    assert "connect_async" in client.events
+    assert client.events.index("will_set") < client.events.index("connect_async")
+    assert client.lwt is not None
+    assert client.lwt.topic == "openwrt-presence/status"
+    assert client.lwt.payload == "offline"
+    assert client.lwt.qos == 1
+    assert client.lwt.retain is True

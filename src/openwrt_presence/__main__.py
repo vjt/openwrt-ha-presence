@@ -35,6 +35,16 @@ async def _run(
     FakeSource; production wires real paho + ExporterSource in main().
     """
     publisher = MqttPublisher(config, client)
+    # LWT must be registered BEFORE connect_async — paho sends the will to
+    # the broker inside the CONNECT packet; setting it after the handshake
+    # is a no-op.  Wired here (not in MqttPublisher.__init__) so the
+    # ordering constraint is discoverable and testable.  See H1.
+    client.will_set(
+        publisher.availability_topic,
+        publisher.OFFLINE_PAYLOAD,
+        qos=1,
+        retain=True,
+    )
     engine = PresenceEngine(config)
 
     # Bind asyncio loop before wiring paho callbacks — _on_connect runs
