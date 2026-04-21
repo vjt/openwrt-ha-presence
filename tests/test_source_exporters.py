@@ -241,9 +241,6 @@ class TestNodeHealthTracking:
             for entry in logs
         )
 
-    # test_recovery_logs_info deferred to Session 2 (requires mid-test server
-    # state change; re-add with a mutable handler once Task 2.4 lands).
-
     async def test_first_scrape_logs_initial_state_healthy(self, aiohttp_server):
         app = web.Application()
         app.router.add_get("/metrics", _metrics_handler)

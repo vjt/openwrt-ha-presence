@@ -65,7 +65,7 @@ ExporterSource.query()  →  list[StationReading]
          ↓
 PresenceEngine.process_snapshot(now, readings)  →  list[StateChange]
          ↓
-MqttPublisher.publish_state(change)  +  log_state_change(change)
+MqttPublisher.publish_state(change) → log_state_computed + log_state_delivered
 ```
 
 - `config.py` — YAML parsed into frozen dataclasses at boundary
@@ -75,8 +75,14 @@ MqttPublisher.publish_state(change)  +  log_state_change(change)
   parse of `wifi_station_signal_dbm{mac="..."} <rssi>`, DNS + session
   pooling, health tracking (only logs on transition healthy↔unreachable)
 - `mqtt.py` — HA MQTT Discovery + retained state + LWT (`status = offline`)
-- `logging.py` — structlog → JSON on stderr, ISO `ts`, uppercase levels
-- `monitor.py` — stdin JSON → ANSI pretty-print (CLI: `openwrt-monitor`)
+- `mqtt_client.py` — structural `MqttClient` Protocol; minimum paho
+  surface typed so `_run` + `FakeMqttClient` share one contract
+- `audit.py` — `log_state_computed` / `log_state_delivered` — the
+  forensic trail; imported by `mqtt.py` at the publish gate
+- `logging.py` — structlog setup boundary → JSON on stderr, ISO `ts`,
+  uppercase levels
+- `monitor.py` — stdin JSON → ANSI pretty-print (CLI: `openwrt-monitor`).
+  Consumes `audit.py` shape via a local `AuditRecord` TypedDict
 - `__main__.py` — wires it all together, signal-driven shutdown
 
 ### Node types — `exit` matters
@@ -141,9 +147,12 @@ via HA. Fail modes have physical consequences.
 - **LWT must fire.** The MQTT `will_set` on the availability topic is
   how HA marks entities unavailable when the service crashes. Don't remove
   it or change the payload without updating the discovery config too.
-- **Log every state change.** `log_state_change` emits a structured
-  JSON line per transition. This is the audit trail — don't gate it
-  behind a log-level check.
+- **Log every state change.** `audit.log_state_computed` fires
+  unconditionally when the engine decides a transition;
+  `audit.log_state_delivered` fires only when all three topic
+  publishes return `rc == 0`. A computed without a matching delivered
+  is the silent-data-loss tripwire — don't gate either behind a
+  log-level check.
 
 ### Architecture rules
 - **No global state.** Everything constructed in `__main__._run` and
@@ -211,8 +220,11 @@ schema changes — they are the documentation.
   a restart. SIGHUP + diff + in-place mutation is engineering-heavy
   for a 4-person household, and the LWT → HA transient unavailable
   is acceptable operational churn. See finding H14.
-- **Monitor → audit-log coupling left stringly-typed.** The
+- **Monitor → audit-log coupling is typed, not shared.** The
   `openwrt-monitor` CLI consumes the JSON shape of `state_computed`
-  / `state_delivered` by field name. A proper `TypedDict` shared
-  between producer and consumer isn't worth it for a dev tool.
-  See finding A1:A7.
+  / `state_delivered` via a local `AuditRecord` TypedDict in
+  `monitor.py` (flat schema, `NotRequired` variant fields). Producer
+  and consumer don't share the definition — the TypedDict is
+  checkable but purely local to the CLI. Reversed the original
+  "accept stringly-typed" non-decision from A1:A7 once the cost of a
+  narrow TypedDict turned out lower than the drift risk.
