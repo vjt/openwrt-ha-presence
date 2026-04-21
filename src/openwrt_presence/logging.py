@@ -6,22 +6,25 @@ Audit-log helpers live in :mod:`openwrt_presence.audit`.
 from __future__ import annotations
 
 import sys
-from typing import IO, Any
+from typing import TYPE_CHECKING, TextIO
 
 import structlog
 
+if TYPE_CHECKING:
+    from structlog.typing import EventDict, WrappedLogger
+
 
 def _uppercase_level(
-    logger: Any,
+    logger: WrappedLogger,
     method_name: str,
-    event_dict: dict[str, Any],
-) -> dict[str, Any]:
+    event_dict: EventDict,
+) -> EventDict:
     if "level" in event_dict:
         event_dict["level"] = event_dict["level"].upper()
     return event_dict
 
 
-def setup_logging(*, file: IO[str] | None = None) -> None:
+def setup_logging(*, file: TextIO | None = None) -> None:
     """Configure structlog for JSON output.
 
     Parameters
