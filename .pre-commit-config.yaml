@@ -1,0 +1,23 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+        stages: [manual]       # REMOVE in Task 4.final once lint-clean
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: pyright
+        name: pyright
+        entry: pyright
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [manual]       # REMOVE in Task 4.final once strict-clean
+      - id: pytest
+        name: pytest
+        entry: pytest -q --timeout=5
+        language: system
+        types: [python]
+        pass_filenames: false
