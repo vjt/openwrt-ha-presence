@@ -16,6 +16,30 @@ This codebase feeds alarm automations. Treat it as security-critical.
 - `pytest` + `pytest-asyncio` (asyncio_mode = auto)
 - Packaged src-layout: `src/openwrt_presence/`
 
+## This is security software
+
+Eve feeds `alarm_control_panel.alarm_arm_away` automations. One wrong
+transition can arm the alarm on an occupant or leave the house
+unprotected. Every design choice optimises for **correctness over
+convenience**:
+
+- **Fail-secure, not fail-safe.** Unknown state = AWAY. Dead AP =
+  eventual AWAY *unless the all-nodes-unreachable circuit breaker
+  says we're blind*, in which case **hold** — do not arm on
+  blindness.
+- **Crash loud on unexpected input.** Malformed `/metrics`, bad MAC,
+  non-integer RSSI, unknown config section — raise with an
+  operator-actionable message. Never `.get(..., default)` on
+  required data. Never skip-and-hope.
+- **Audit trail non-optional.** `state_computed` + `state_delivered`
+  are the forensic record. Don't gate them behind a log-level check.
+- **No "smart" behavior.** Pedantic correctness over convenience.
+  If the review didn't ask for a fallback or recovery path, don't
+  add one.
+- **State the contract.** Every public method's docstring names the
+  return type and the exceptions it raises. If you can't name the
+  exceptions, the method isn't designed.
+
 ## Run / dev
 
 ```bash
@@ -176,3 +200,19 @@ schema changes — they are the documentation.
 - Deployment-specific details (network, container name, fixed IPs)
   live in gitignored `docker-compose.yaml` / `Dockerfile` / `config.yaml`.
   Don't hardcode them into tracked code or docs.
+
+## Deliberate non-decisions (YAGNI)
+
+- **No `Publisher` protocol.** Only `MqttPublisher` exists. A second
+  publisher (webhook, secondary broker) would justify introducing
+  the protocol; until then, over-abstracting adds ceremony. See
+  `docs/reviews/architecture/2026-04-21-architecture-review.md` H10.
+- **No runtime config reload.** Adding a person or a MAC requires
+  a restart. SIGHUP + diff + in-place mutation is engineering-heavy
+  for a 4-person household, and the LWT → HA transient unavailable
+  is acceptable operational churn. See finding H14.
+- **Monitor → audit-log coupling left stringly-typed.** The
+  `openwrt-monitor` CLI consumes the JSON shape of `state_computed`
+  / `state_delivered` by field name. A proper `TypedDict` shared
+  between producer and consumer isn't worth it for a dev tool.
+  See finding A1:A7.
