@@ -47,15 +47,17 @@ class FakeMqttClient:
     def enable_logger(self, logger: Any = None) -> None:
         self.paho_logger = logger
 
-    def username_pw_set(self, username: str, password: str | None) -> None:
+    def username_pw_set(
+        self, username: str | None, password: str | None = None
+    ) -> None:
         self.username = username
         self.password = password
 
     def reconnect_delay_set(self, min_delay: int, max_delay: int) -> None:
         self.reconnect_delay = (min_delay, max_delay)
 
-    def max_queued_messages_set(self, n: int) -> None:
-        self.max_queued = n
+    def max_queued_messages_set(self, queue_size: int) -> None:
+        self.max_queued = queue_size
 
     def will_set(
         self, topic: str, payload: str, qos: int = 0, retain: bool = False
@@ -83,13 +85,17 @@ class FakeMqttClient:
         )
         return _FakePublishResult(rc=self.publish_rc, mid=len(self.published))
 
-    # paho sets these as attributes; we record them
+    # paho sets these as attributes; we record them.  Setter accepts
+    # ``Callable[..., None] | None`` so the structural ``MqttClient``
+    # protocol in ``openwrt_presence.mqtt_client`` (whose ``OnConnect``
+    # spells the five-arg shape explicitly) is satisfied without the
+    # Fake having to import production code.
     @property
     def on_connect(self) -> Callable[..., None] | None:
         return self._on_connect
 
     @on_connect.setter
-    def on_connect(self, cb: Callable[..., None]) -> None:
+    def on_connect(self, cb: Callable[..., None] | None) -> None:
         self._on_connect = cb
 
     @property
@@ -97,7 +103,7 @@ class FakeMqttClient:
         return self._on_disconnect
 
     @on_disconnect.setter
-    def on_disconnect(self, cb: Callable[..., None]) -> None:
+    def on_disconnect(self, cb: Callable[..., None] | None) -> None:
         self._on_disconnect = cb
 
     # ------------ test driver helpers ------------

@@ -9,10 +9,11 @@ import os
 import signal
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import paho.mqtt.client as mqtt
 import structlog
+from paho.mqtt.enums import CallbackAPIVersion
 
 from openwrt_presence.config import Config
 from openwrt_presence.engine import PresenceEngine
@@ -21,14 +22,17 @@ from openwrt_presence.mqtt import MqttPublisher
 from openwrt_presence.sources.exporters import ExporterSource
 
 if TYPE_CHECKING:
+    from openwrt_presence.mqtt_client import MqttClient
     from openwrt_presence.sources.base import Source
 
 logger = structlog.get_logger()
 
 
-async def _run(
+async def _run(  # noqa: PLR0915 -- top-level wiring + poll loop; E2E tests
+    # pin its shape, so decomposing for statement count would fight the test
+    # harness without improving clarity.
     config: Config,
-    client,  # MqttClient-shaped — FakeMqttClient in tests, paho in prod
+    client: MqttClient,
     source: Source,
 ) -> None:
     """Run eve to shutdown with injected broker client and source.
@@ -57,11 +61,11 @@ async def _run(
     connected_event = asyncio.Event()
 
     def _on_connect(
-        client,
-        userdata,
-        flags,
-        reason_code,
-        properties=None,
+        client: object,
+        userdata: object,
+        flags: object,
+        reason_code: object,
+        properties: object | None = None,
     ) -> None:
         logger.info("mqtt_connected", reason_code=str(reason_code))
 
@@ -86,11 +90,11 @@ async def _run(
         loop.call_soon_threadsafe(connected_event.set)
 
     def _on_disconnect(
-        client,
-        userdata,
-        disconnect_flags,
-        reason_code,
-        properties=None,
+        client: object,
+        userdata: object,
+        disconnect_flags: object,
+        reason_code: object,
+        properties: object | None = None,
     ) -> None:
         logger.warning("mqtt_disconnected", reason_code=str(reason_code))
 
@@ -185,7 +189,13 @@ def main() -> None:
     config = Config.from_yaml(config_path)
     setup_logging()
 
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    # Cast at the boundary: paho's ``Client.on_connect`` property is typed
+    # with its own concrete callback union (``CallbackOnConnect``) whose
+    # first arg is ``Client`` — invariantly.  Our ``MqttClient`` protocol
+    # declares it as ``Callable[[object, ...], None]`` so tests can satisfy
+    # it without importing paho.  The cast is one-way (paho -> protocol) and
+    # sound: every method we call on the protocol lives on the paho client.
+    client = cast("MqttClient", mqtt.Client(CallbackAPIVersion.VERSION2))
     if config.mqtt.username:
         client.username_pw_set(config.mqtt.username, config.mqtt.password)
     client.reconnect_delay_set(min_delay=1, max_delay=60)
@@ -212,15 +222,11 @@ def main() -> None:
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, _shutdown)
 
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await run_task
-        except asyncio.CancelledError:
-            pass
 
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(_entry())
-    except KeyboardInterrupt:
-        pass
 
 
 if __name__ == "__main__":

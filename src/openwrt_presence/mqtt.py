@@ -11,6 +11,7 @@ from openwrt_presence.domain import AwayState, HomeState
 if TYPE_CHECKING:
     from openwrt_presence.config import Config
     from openwrt_presence.domain import PersonName, StateChange
+    from openwrt_presence.mqtt_client import MqttClient
 
 
 _QOS = 1
@@ -39,7 +40,7 @@ class MqttPublisher:
     OFFLINE_PAYLOAD: Final[str] = "offline"
     ONLINE_PAYLOAD: Final[str] = "online"
 
-    def __init__(self, config: Config, client: Any) -> None:
+    def __init__(self, config: Config, client: MqttClient) -> None:
         self._config = config
         self._client = client
         self._topic_prefix = config.mqtt.topic_prefix
