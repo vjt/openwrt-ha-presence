@@ -75,16 +75,17 @@ async def _run() -> None:
     logger.info("initial_query")
     readings = await source.query()
     now = datetime.now(timezone.utc)
-    changes = engine.process_snapshot(now, readings)
-    for change in changes:
-        log_state_change(change)
+    engine.process_snapshot(now, readings)
 
-    # Seed publisher cache with current state for every person.  Closes the
-    # window where a person was already away at startup and no transition
-    # would ever be emitted — on_connect now has something to replay.
+    # Publish current state for every person regardless of transition.
+    # Closes two gaps at once: (a) an already-away person at startup would
+    # produce no transition, hence no publish, leaving HA with stale
+    # retained state; (b) the audit log would be silent about what we just
+    # told HA.  A startup always emits one state_change per person.
     for person in config.people:
         snapshot = engine.get_person_snapshot(person, now)
         publisher.publish_state(snapshot)
+        log_state_change(snapshot)
 
     logger.info("poll_loop_started", interval=config.poll_interval)
 
