@@ -2,11 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import yaml
 
 from openwrt_presence.domain import Mac, NodeName, PersonName, Room
+
+# Default values — single source of truth for dataclass defaults AND
+# from_dict fallbacks. Operators override via config.yaml; omitting the
+# key keeps the default.
+DEFAULT_AWAY_TIMEOUT_SEC: Final[int] = 64800  # 18h — phone Wi-Fi doze safety net
+DEFAULT_POLL_INTERVAL_SEC: Final[int] = 30  # /metrics scrape cadence
+DEFAULT_EXPORTER_PORT: Final[int] = 9100  # prometheus-node-exporter
+DEFAULT_DNS_CACHE_TTL_SEC: Final[int] = 300  # 5m — resolver reuse
 
 
 class ConfigError(Exception):
@@ -40,10 +48,10 @@ class Config:
     nodes: dict[NodeName, NodeConfig]
     people: dict[PersonName, PersonConfig]
     departure_timeout: int
-    away_timeout: int = 64800
-    poll_interval: int = 30
-    exporter_port: int = 9100
-    dns_cache_ttl: int = 300
+    away_timeout: int = DEFAULT_AWAY_TIMEOUT_SEC
+    poll_interval: int = DEFAULT_POLL_INTERVAL_SEC
+    exporter_port: int = DEFAULT_EXPORTER_PORT
+    dns_cache_ttl: int = DEFAULT_DNS_CACHE_TTL_SEC
     _mac_lookup: dict[Mac, PersonName] = field(
         default_factory=dict, repr=False, compare=False
     )
@@ -90,7 +98,9 @@ class Config:
         """Validate *data* and return a fully-initialised :class:`Config`."""
 
         # --- mqtt ---
-        mqtt_raw = data.get("mqtt", {})
+        if "mqtt" not in data:
+            raise ConfigError("mqtt section is required")
+        mqtt_raw = data["mqtt"]
         mqtt = MqttConfig(
             host=mqtt_raw["host"],
             port=mqtt_raw["port"],
@@ -131,19 +141,21 @@ class Config:
             people[person] = PersonConfig(macs=macs)
 
         # --- departure_timeout ---
+        if "departure_timeout" not in data:
+            raise ConfigError("departure_timeout is required (typical: 120 seconds)")
         departure_timeout: int = data["departure_timeout"]
 
         # --- away_timeout ---
-        away_timeout: int = data.get("away_timeout", 64800)
+        away_timeout: int = data.get("away_timeout", DEFAULT_AWAY_TIMEOUT_SEC)
 
         # --- poll_interval ---
-        poll_interval: int = data.get("poll_interval", 30)
+        poll_interval: int = data.get("poll_interval", DEFAULT_POLL_INTERVAL_SEC)
 
         # --- exporter_port ---
-        exporter_port: int = data.get("exporter_port", 9100)
+        exporter_port: int = data.get("exporter_port", DEFAULT_EXPORTER_PORT)
 
         # --- dns_cache_ttl ---
-        dns_cache_ttl: int = data.get("dns_cache_ttl", 300)
+        dns_cache_ttl: int = data.get("dns_cache_ttl", DEFAULT_DNS_CACHE_TTL_SEC)
 
         return cls(
             mqtt=mqtt,

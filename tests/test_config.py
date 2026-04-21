@@ -2,7 +2,14 @@ import dataclasses
 
 import pytest
 
-from openwrt_presence.config import Config, ConfigError
+from openwrt_presence.config import (
+    DEFAULT_AWAY_TIMEOUT_SEC,
+    DEFAULT_DNS_CACHE_TTL_SEC,
+    DEFAULT_EXPORTER_PORT,
+    DEFAULT_POLL_INTERVAL_SEC,
+    Config,
+    ConfigError,
+)
 from openwrt_presence.domain import Mac, NodeName
 
 
@@ -96,6 +103,40 @@ class TestConfigValidation:
     def test_rejects_missing_nodes(self):
         with pytest.raises(ConfigError):
             Config.from_dict(_base_config(nodes={}))
+
+    def test_missing_mqtt_section_raises_config_error(self):
+        with pytest.raises(ConfigError, match="mqtt section is required"):
+            Config.from_dict(
+                {
+                    "nodes": {"ap-x": {"room": "x"}},
+                    "people": {"alice": {"macs": ["aa:bb:cc:dd:ee:01"]}},
+                    "departure_timeout": 120,
+                }
+            )
+
+    def test_missing_departure_timeout_raises_config_error(self):
+        with pytest.raises(ConfigError, match="departure_timeout is required"):
+            Config.from_dict(
+                {
+                    "mqtt": {"host": "x", "port": 1883, "topic_prefix": "p"},
+                    "nodes": {"ap-x": {"room": "x"}},
+                    "people": {"alice": {"macs": ["aa:bb:cc:dd:ee:01"]}},
+                }
+            )
+
+    def test_config_defaults_reference_module_constants(self):
+        cfg = Config.from_dict(
+            {
+                "mqtt": {"host": "x", "port": 1883, "topic_prefix": "p"},
+                "nodes": {"ap-x": {"room": "x"}},
+                "people": {"alice": {"macs": ["aa:bb:cc:dd:ee:01"]}},
+                "departure_timeout": 120,
+            }
+        )
+        assert cfg.away_timeout == DEFAULT_AWAY_TIMEOUT_SEC
+        assert cfg.poll_interval == DEFAULT_POLL_INTERVAL_SEC
+        assert cfg.exporter_port == DEFAULT_EXPORTER_PORT
+        assert cfg.dns_cache_ttl == DEFAULT_DNS_CACHE_TTL_SEC
 
 
 class TestExitNodes:
