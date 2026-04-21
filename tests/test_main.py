@@ -28,3 +28,15 @@ def test_initial_query_failure_does_not_crash():
     """
     src = inspect.getsource(eve_main._run)
     assert src.count("initial_query_failed") >= 1
+
+
+def test_on_connect_wrapped_in_try_except():
+    """Guard against on_connected raising and being swallowed by paho (H7)."""
+    src = inspect.getsource(eve_main._run)
+    assert "on_connected_failed" in src
+
+
+def test_paho_logger_enabled():
+    """Guard that paho's internal logger is wired so errors surface (H7)."""
+    src = inspect.getsource(eve_main._run)
+    assert "enable_logger" in src

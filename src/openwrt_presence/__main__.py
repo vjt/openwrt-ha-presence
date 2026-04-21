@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging as stdlib_logging
 import os
 import signal
 from datetime import UTC, datetime
@@ -42,7 +43,10 @@ async def _run() -> None:
         properties=None,
     ) -> None:
         logger.info("mqtt_connected", reason_code=str(reason_code))
-        publisher.on_connected()
+        try:
+            publisher.on_connected()
+        except Exception:
+            logger.exception("on_connected_failed")
 
     def _on_disconnect(
         client: mqtt.Client,
@@ -55,6 +59,8 @@ async def _run() -> None:
 
     client.on_connect = _on_connect
     client.on_disconnect = _on_disconnect
+
+    client.enable_logger(stdlib_logging.getLogger("paho.mqtt.client"))
 
     client.connect_async(config.mqtt.host, config.mqtt.port)
     client.loop_start()
