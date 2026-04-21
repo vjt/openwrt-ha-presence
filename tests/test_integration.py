@@ -5,7 +5,14 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from openwrt_presence.config import Config
-from openwrt_presence.domain import AwayState, StationReading
+from openwrt_presence.domain import (
+    AwayState,
+    HomeState,
+    Mac,
+    NodeName,
+    PersonName,
+    StationReading,
+)
 from openwrt_presence.engine import PresenceEngine
 
 
@@ -14,7 +21,7 @@ def _ts(minutes: float = 0) -> datetime:
 
 
 def _reading(mac: str, ap: str, rssi: int) -> StationReading:
-    return StationReading(mac=mac, ap=ap, rssi=rssi)
+    return StationReading(mac=Mac(mac), ap=NodeName(ap), rssi=rssi)
 
 
 def _make_config() -> Config:
@@ -70,6 +77,7 @@ class TestArrivalAndRoaming:
             ],
         )
         assert len(changes) == 1
+        assert isinstance(changes[0], HomeState)
         assert changes[0].room == "office"
 
         # Alice moves to kitchen — only kitchen AP sees her
@@ -80,6 +88,7 @@ class TestArrivalAndRoaming:
             ],
         )
         assert len(changes) == 1
+        assert isinstance(changes[0], HomeState)
         assert changes[0].room == "kitchen"
 
         # Stable in kitchen for several polls — no changes
@@ -99,13 +108,14 @@ class TestArrivalAndRoaming:
             ],
         )
         assert len(changes) == 1
+        assert isinstance(changes[0], HomeState)
         assert changes[0].room == "garden"
 
         # Phone goes out of range — empty snapshot
         changes = engine.process_snapshot(_ts(10.5), [])
         # DEPARTING — still home, room preserved
         assert changes == []
-        state = engine.get_person_state("alice")
+        state = engine.get_person_state(PersonName("alice"))
         assert state.home is True
         assert state.room == "garden"
 
@@ -139,6 +149,7 @@ class TestArrivalAndRoaming:
             ],
         )
         assert len(changes) == 1
+        assert isinstance(changes[0], HomeState)
         assert changes[0].room == "bedroom"  # ap-bedroom has strongest RSSI
 
         # Next poll: office RSSI improves
@@ -150,6 +161,7 @@ class TestArrivalAndRoaming:
             ],
         )
         assert len(changes) == 1
+        assert isinstance(changes[0], HomeState)
         assert changes[0].room == "office"
 
 
@@ -180,7 +192,7 @@ class TestMultiDevice:
             ],
         )
         assert changes == []
-        state = engine.get_person_state("alice")
+        state = engine.get_person_state(PersonName("alice"))
         assert state.home is True
         assert state.room == "office"
 
@@ -192,7 +204,7 @@ class TestMultiDevice:
             ],
         )
         assert changes == []
-        state = engine.get_person_state("alice")
+        state = engine.get_person_state(PersonName("alice"))
         assert state.home is True
 
     def test_devices_in_different_rooms(self):
@@ -209,6 +221,7 @@ class TestMultiDevice:
             ],
         )
         assert len(changes) == 1
+        assert isinstance(changes[0], HomeState)
         assert changes[0].room == "office"  # laptop's room, stronger RSSI
 
     def test_both_devices_disappear(self):
@@ -271,7 +284,7 @@ class TestMultiplePeople:
         assert changes[0].person == "bob"
         assert changes[0].home is False
 
-        state = engine.get_person_state("alice")
+        state = engine.get_person_state(PersonName("alice"))
         assert state.home is True
 
 
@@ -293,7 +306,7 @@ class TestExitInteriorIntegration:
         engine.process_snapshot(_ts(1), [])
         changes = engine.process_snapshot(_ts(4), [])
         assert changes == []
-        assert engine.get_person_state("alice").home is True
+        assert engine.get_person_state(PersonName("alice")).home is True
 
         # Phone wakes up — no state change (was still home)
         changes = engine.process_snapshot(

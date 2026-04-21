@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 
 import pytest
+from typing_extensions import override
 
 from openwrt_presence.__main__ import _run
 from openwrt_presence.domain import Mac, NodeName, StationReading
@@ -185,10 +186,12 @@ async def test_run_wires_lwt_before_connect(sample_config):
             super().__init__()
             self.events: list[str] = []
 
+        @override
         def will_set(self, topic, payload, qos=0, retain=False):
             self.events.append("will_set")
             super().will_set(topic, payload, qos, retain)
 
+        @override
         def connect_async(self, host, port):
             self.events.append("connect_async")
             super().connect_async(host, port)

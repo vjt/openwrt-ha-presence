@@ -2,12 +2,19 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from openwrt_presence.domain import AwayState, HomeState, PersonName, StationReading
+from openwrt_presence.domain import (
+    AwayState,
+    HomeState,
+    Mac,
+    NodeName,
+    PersonName,
+    StationReading,
+)
 from openwrt_presence.engine import PresenceEngine
 
 
 def _reading(mac: str, ap: str, rssi: int) -> StationReading:
-    return StationReading(mac=mac, ap=ap, rssi=rssi)
+    return StationReading(mac=Mac(mac), ap=NodeName(ap), rssi=rssi)
 
 
 def _ts(minutes: float = 0) -> datetime:
@@ -71,6 +78,7 @@ class TestSnapshotBasicTransitions:
                 _reading("aa:bb:cc:dd:ee:01", "ap-living", -42),
             ],
         )
+        assert isinstance(changes[0], HomeState)
         assert changes[0].rssi == -42
 
 
@@ -139,7 +147,7 @@ class TestDeparture:
             ],
         )
         assert changes == []
-        state = engine.get_person_state("alice")
+        state = engine.get_person_state(PersonName("alice"))
         assert state.home is True
 
 
@@ -154,6 +162,7 @@ class TestRoomSelection:
             ],
         )
         assert len(changes) == 1
+        assert isinstance(changes[0], HomeState)
         assert changes[0].room == "bedroom"  # ap-bedroom's room
 
     def test_room_changes_with_rssi(self, sample_config):
@@ -172,6 +181,7 @@ class TestRoomSelection:
             ],
         )
         assert len(changes) == 1
+        assert isinstance(changes[0], HomeState)
         assert changes[0].room == "bedroom"
 
     def test_departing_preserves_room(self, sample_config):
@@ -186,7 +196,7 @@ class TestRoomSelection:
         changes = engine.process_snapshot(_ts(1), [])
         # No state change (still home, room preserved)
         assert changes == []
-        state = engine.get_person_state("alice")
+        state = engine.get_person_state(PersonName("alice"))
         assert state.home is True
         assert state.room == "office"
 
@@ -264,7 +274,7 @@ class TestExitNodeTimeouts:
         # Past departure_timeout (2 min) but before away_timeout (10 min)
         changes = engine.process_snapshot(_ts(4), [])
         assert changes == []
-        state = engine.get_person_state("alice")
+        state = engine.get_person_state(PersonName("alice"))
         assert state.home is True
 
     def test_interior_node_eventually_times_out(self, sample_config):
@@ -316,7 +326,7 @@ class TestGetPersonSnapshot:
                 _reading("aa:bb:cc:dd:ee:01", "ap-living", -42),
             ],
         )
-        snap = engine.get_person_snapshot("alice", _ts(0))
+        snap = engine.get_person_snapshot(PersonName("alice"), _ts(0))
         assert isinstance(snap, HomeState)
         assert snap.person == "alice"
         assert snap.room == "office"
@@ -326,7 +336,7 @@ class TestGetPersonSnapshot:
 
     def test_snapshot_for_never_seen_person(self, sample_config):
         engine = PresenceEngine(sample_config)
-        snap = engine.get_person_snapshot("bob", _ts(0))
+        snap = engine.get_person_snapshot(PersonName("bob"), _ts(0))
         assert isinstance(snap, AwayState)
         assert snap.person == "bob"
         assert snap.last_mac is None
@@ -342,7 +352,7 @@ class TestGetPersonSnapshot:
         )
         engine.process_snapshot(_ts(1), [])  # DEPARTING
         engine.process_snapshot(_ts(4), [])  # AWAY (>120s)
-        snap = engine.get_person_snapshot("alice", _ts(4))
+        snap = engine.get_person_snapshot(PersonName("alice"), _ts(4))
         assert isinstance(snap, AwayState)
         assert snap.last_mac == "aa:bb:cc:dd:ee:01"
         assert snap.last_node == "ap-garden"

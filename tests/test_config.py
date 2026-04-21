@@ -67,7 +67,7 @@ class TestConfigLoading:
                 }
             )
         )
-        assert cfg.nodes["ap1"].url == "http://192.168.1.10:9100/metrics"
+        assert cfg.nodes[NodeName("ap1")].url == "http://192.168.1.10:9100/metrics"
 
     def test_node_urls_property(self):
         cfg = Config.from_dict(
@@ -80,8 +80,8 @@ class TestConfigLoading:
             )
         )
         urls = cfg.node_urls
-        assert urls["ap1"] == "http://ap1:9100/metrics"
-        assert urls["ap2"] == "http://10.0.0.5:9200/metrics"
+        assert urls[NodeName("ap1")] == "http://ap1:9100/metrics"
+        assert urls[NodeName("ap2")] == "http://10.0.0.5:9200/metrics"
 
 
 class TestConfigValidation:

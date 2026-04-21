@@ -7,6 +7,7 @@ import json
 
 from aiohttp import web
 
+from openwrt_presence.domain import Mac, NodeName
 from openwrt_presence.logging import setup_logging
 from openwrt_presence.sources.exporters import ExporterSource
 
@@ -28,13 +29,14 @@ def _make_source(
     node_urls: dict[str, str] | None = None,
     tracked_macs: set[str] | None = None,
 ) -> ExporterSource:
+    raw_urls = node_urls or {
+        "ap-living": "http://ap-living:9100/metrics",
+        "ap-bedroom": "http://ap-bedroom:9100/metrics",
+    }
+    raw_macs = tracked_macs or {"aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"}
     return ExporterSource(
-        node_urls=node_urls
-        or {
-            "ap-living": "http://ap-living:9100/metrics",
-            "ap-bedroom": "http://ap-bedroom:9100/metrics",
-        },
-        tracked_macs=tracked_macs or {"aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"},
+        node_urls={NodeName(k): v for k, v in raw_urls.items()},
+        tracked_macs={Mac(m) for m in raw_macs},
     )
 
 
@@ -48,49 +50,49 @@ def _log_lines(stream: io.StringIO) -> list[dict]:
 # ── parser tests (pure logic, no network) ─────────────────────────────
 class TestMetricsParsing:
     def test_parses_wifi_station_lines(self):
-        readings = ExporterSource._parse_metrics(SAMPLE_METRICS, "ap-living")
+        readings = ExporterSource._parse_metrics(SAMPLE_METRICS, NodeName("ap-living"))
         assert len(readings) == 3
 
     def test_extracts_mac_lowercase(self):
-        readings = ExporterSource._parse_metrics(SAMPLE_METRICS, "ap-living")
+        readings = ExporterSource._parse_metrics(SAMPLE_METRICS, NodeName("ap-living"))
         macs = {r.mac for r in readings}
         assert "aa:bb:cc:11:22:01" in macs
         assert "aa:bb:cc:11:22:04" in macs
 
     def test_extracts_rssi_as_int(self):
-        readings = ExporterSource._parse_metrics(SAMPLE_METRICS, "ap-living")
+        readings = ExporterSource._parse_metrics(SAMPLE_METRICS, NodeName("ap-living"))
         by_mac = {r.mac: r for r in readings}
-        assert by_mac["aa:bb:cc:11:22:01"].rssi == -55
-        assert by_mac["aa:bb:cc:11:22:04"].rssi == -42
+        assert by_mac[Mac("aa:bb:cc:11:22:01")].rssi == -55
+        assert by_mac[Mac("aa:bb:cc:11:22:04")].rssi == -42
 
     def test_ap_name_set_from_argument(self):
-        readings = ExporterSource._parse_metrics(SAMPLE_METRICS, "ap-bedroom")
+        readings = ExporterSource._parse_metrics(SAMPLE_METRICS, NodeName("ap-bedroom"))
         assert all(r.ap == "ap-bedroom" for r in readings)
 
     def test_ignores_non_wifi_metrics(self):
-        readings = ExporterSource._parse_metrics(SAMPLE_METRICS, "ap-living")
+        readings = ExporterSource._parse_metrics(SAMPLE_METRICS, NodeName("ap-living"))
         assert all(r.rssi < 0 for r in readings)
 
     def test_empty_metrics(self):
-        readings = ExporterSource._parse_metrics("", "ap-living")
+        readings = ExporterSource._parse_metrics("", NodeName("ap-living"))
         assert readings == []
 
     def test_no_wifi_metrics(self):
         text = 'node_cpu_seconds_total{cpu="0"} 123.45\n'
-        readings = ExporterSource._parse_metrics(text, "ap-living")
+        readings = ExporterSource._parse_metrics(text, NodeName("ap-living"))
         assert readings == []
 
     def test_handles_float_rssi(self):
         text = (
             'wifi_station_signal_dbm{ifname="phy1-ap0",mac="AA:BB:CC:DD:EE:01"} -55.7\n'
         )
-        readings = ExporterSource._parse_metrics(text, "ap-living")
+        readings = ExporterSource._parse_metrics(text, NodeName("ap-living"))
         assert readings[0].rssi == -55
 
     def test_filters_to_tracked_macs(self):
         source = _make_source(tracked_macs={"aa:bb:cc:11:22:01"})
         readings = source._filter_tracked(
-            ExporterSource._parse_metrics(SAMPLE_METRICS, "ap-living")
+            ExporterSource._parse_metrics(SAMPLE_METRICS, NodeName("ap-living"))
         )
         assert len(readings) == 1
         assert readings[0].mac == "aa:bb:cc:11:22:01"
@@ -120,8 +122,8 @@ class TestExporterSource:
         url = f"http://{server.host}:{server.port}/metrics"
 
         source = ExporterSource(
-            node_urls={"ap-garden": url},
-            tracked_macs={"aa:bb:cc:dd:ee:01"},
+            node_urls={NodeName("ap-garden"): url},
+            tracked_macs={Mac("aa:bb:cc:dd:ee:01")},
             dns_cache_ttl=60,
         )
         try:
@@ -141,8 +143,8 @@ class TestExporterSource:
         url = f"http://{server.host}:{server.port}/metrics"
 
         source = ExporterSource(
-            node_urls={"ap-garden": url},
-            tracked_macs={"aa:bb:cc:dd:ee:01"},
+            node_urls={NodeName("ap-garden"): url},
+            tracked_macs={Mac("aa:bb:cc:dd:ee:01")},
             dns_cache_ttl=60,
         )
         try:
@@ -159,8 +161,8 @@ class TestExporterSource:
         url = f"http://{server.host}:{server.port}/metrics"
 
         source = ExporterSource(
-            node_urls={"ap-garden": url},
-            tracked_macs={"aa:bb:cc:dd:ee:01"},
+            node_urls={NodeName("ap-garden"): url},
+            tracked_macs={Mac("aa:bb:cc:dd:ee:01")},
             dns_cache_ttl=60,
         )
         try:
@@ -170,7 +172,7 @@ class TestExporterSource:
 
         assert readings == []
         # Node must be flagged as unhealthy (503 is not a success)
-        assert source._node_healthy.get("ap-garden") is False
+        assert source._node_healthy.get(NodeName("ap-garden")) is False
 
 
 # ── health tracking (dead-port for legitimate connect errors) ─────────
@@ -184,8 +186,8 @@ class TestNodeHealthTracking:
         stream = io.StringIO()
         setup_logging(file=stream)
         source = ExporterSource(
-            node_urls={"ap-living": _DEAD_URL},
-            tracked_macs={"aa:bb:cc:dd:ee:01"},
+            node_urls={NodeName("ap-living"): _DEAD_URL},
+            tracked_macs={Mac("aa:bb:cc:dd:ee:01")},
         )
         try:
             await source.query()
@@ -201,8 +203,8 @@ class TestNodeHealthTracking:
         stream = io.StringIO()
         setup_logging(file=stream)
         source = ExporterSource(
-            node_urls={"ap-living": _DEAD_URL},
-            tracked_macs={"aa:bb:cc:dd:ee:01"},
+            node_urls={NodeName("ap-living"): _DEAD_URL},
+            tracked_macs={Mac("aa:bb:cc:dd:ee:01")},
         )
         try:
             await source.query()  # first — logs
@@ -224,8 +226,8 @@ class TestNodeHealthTracking:
         stream = io.StringIO()
         setup_logging(file=stream)
         source = ExporterSource(
-            node_urls={"ap-living": url},
-            tracked_macs={"aa:bb:cc:dd:ee:01"},
+            node_urls={NodeName("ap-living"): url},
+            tracked_macs={Mac("aa:bb:cc:dd:ee:01")},
         )
         try:
             await source.query()
@@ -249,8 +251,8 @@ class TestNodeHealthTracking:
         stream = io.StringIO()
         setup_logging(file=stream)
         source = ExporterSource(
-            node_urls={"ap-living": url},
-            tracked_macs={"aa:bb:cc:dd:ee:01"},
+            node_urls={NodeName("ap-living"): url},
+            tracked_macs={Mac("aa:bb:cc:dd:ee:01")},
         )
         try:
             await source.query()
@@ -264,8 +266,8 @@ class TestNodeHealthTracking:
         stream2 = io.StringIO()
         setup_logging(file=stream2)
         source2 = ExporterSource(
-            node_urls={"ap-living": url},
-            tracked_macs={"aa:bb:cc:dd:ee:01"},
+            node_urls={NodeName("ap-living"): url},
+            tracked_macs={Mac("aa:bb:cc:dd:ee:01")},
         )
         try:
             await source2.query()
@@ -290,8 +292,8 @@ class TestNodeHealthTracking:
         stream = io.StringIO()
         setup_logging(file=stream)
         source = ExporterSource(
-            node_urls={"ap-living": _DEAD_URL},
-            tracked_macs={"aa:bb:cc:dd:ee:01"},
+            node_urls={NodeName("ap-living"): _DEAD_URL},
+            tracked_macs={Mac("aa:bb:cc:dd:ee:01")},
         )
         try:
             await source.query()
@@ -326,7 +328,7 @@ class TestMalformedMetrics:
         stream = io.StringIO()
         setup_logging(file=stream)
         source = ExporterSource(
-            node_urls={"ap-broken": url},
+            node_urls={NodeName("ap-broken"): url},
             tracked_macs=set(),
             dns_cache_ttl=60,
         )
@@ -350,7 +352,7 @@ class TestAllNodesUnhealthy:
 
     async def test_false_before_any_query(self):
         source = ExporterSource(
-            node_urls={"down": _DEAD_URL},
+            node_urls={NodeName("down"): _DEAD_URL},
             tracked_macs=set(),
         )
         try:
@@ -366,10 +368,10 @@ class TestAllNodesUnhealthy:
 
         source = ExporterSource(
             node_urls={
-                "up": url,
-                "down": _DEAD_URL,
+                NodeName("up"): url,
+                NodeName("down"): _DEAD_URL,
             },
-            tracked_macs={"aa:bb:cc:dd:ee:01"},
+            tracked_macs={Mac("aa:bb:cc:dd:ee:01")},
             dns_cache_ttl=60,
         )
         try:
@@ -380,7 +382,7 @@ class TestAllNodesUnhealthy:
 
     async def test_true_when_all_down(self):
         source = ExporterSource(
-            node_urls={"down1": _DEAD_URL, "down2": _DEAD_URL},
+            node_urls={NodeName("down1"): _DEAD_URL, NodeName("down2"): _DEAD_URL},
             tracked_macs=set(),
             dns_cache_ttl=60,
         )

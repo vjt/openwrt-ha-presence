@@ -53,7 +53,7 @@ class Config:
     exporter_port: int = DEFAULT_EXPORTER_PORT
     dns_cache_ttl: int = DEFAULT_DNS_CACHE_TTL_SEC
     _mac_lookup: dict[Mac, PersonName] = field(
-        default_factory=dict, repr=False, compare=False
+        default_factory=lambda: {}, repr=False, compare=False
     )
 
     @staticmethod

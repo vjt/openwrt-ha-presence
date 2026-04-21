@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from openwrt_presence.engine import PresenceEngine
-from openwrt_presence.domain import AwayState, StationReading
+from openwrt_presence.domain import AwayState, Mac, NodeName, StationReading
 
 
 def test_exit_node_ap_death_produces_away_after_departure_timeout(sample_config):
@@ -17,7 +17,9 @@ def test_exit_node_ap_death_produces_away_after_departure_timeout(sample_config)
     engine.process_snapshot(
         t,
         [
-            StationReading(mac="aa:bb:cc:dd:ee:01", ap="ap-garden", rssi=-55),
+            StationReading(
+                mac=Mac("aa:bb:cc:dd:ee:01"), ap=NodeName("ap-garden"), rssi=-55
+            ),
         ],
     )
     for _ in range(30):
@@ -38,7 +40,9 @@ def test_interior_node_ap_death_uses_long_timeout(sample_config):
     engine.process_snapshot(
         t,
         [
-            StationReading(mac="aa:bb:cc:dd:ee:03", ap="ap-living", rssi=-60),
+            StationReading(
+                mac=Mac("aa:bb:cc:dd:ee:03"), ap=NodeName("ap-living"), rssi=-60
+            ),
         ],
     )
     for _ in range(55):
