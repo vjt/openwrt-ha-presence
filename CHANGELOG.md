@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🧰 **Pyright strict** + **ruff** + **pre-commit** + **GitHub Actions CI** — tooling floor for the hardening rewrite
 - 📜 `scripts/check.sh` — single-command green gate (ruff + pyright + pytest). Inherited from ha-verisure
 - 📦 Dev dependency bump: hypothesis, pytest-timeout, pre-commit, aiohttp speedups
+- 🧪 **FakeMqttClient + FakeSource + PublishedMsg** in `tests/fakes.py` — test doubles asserting on concrete outcomes, not mock-call string scans
+- 🔒 **Wire-format golden fixture** (`tests/wire_format_golden.json` + `tests/test_wire_format.py`) — locks MQTT byte shape against accidental regression through the hardening rewrite
+- 🧩 Expanded `sample_config` fixture (3 nodes, 2 people, 3 MACs) via direct `Config(...)` constructor + `ts` timestamp helper — single source for integration tests
+
+### Changed
+- 🧪 `test_mqtt.py` rewritten asserting on `PublishedMsg` outcomes (audit-log + reconnect-no-relog + idempotency coverage preserved)
+- 🧪 `test_source_exporters.py` rewritten using `aiohttp` test server + dead-port URLs for health tracking (no private-method monkey-patching)
+- 🏷️ Test node names aligned to `ap-*` convention (`ap-garden`/`ap-living`/`ap-bedroom`) — production config untouched
 
 ## [0.5.0] — 2026-04-21
 
