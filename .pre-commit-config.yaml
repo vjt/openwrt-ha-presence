@@ -17,7 +17,7 @@ repos:
         stages: [manual]       # REMOVE in Task 4.final once strict-clean
       - id: pytest
         name: pytest
-        entry: pytest -q --timeout=5
+        entry: .venv/bin/pytest -q --timeout=5
         language: system
         types: [python]
         pass_filenames: false
