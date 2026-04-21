@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 import yaml
 
 from openwrt_presence.domain import Mac, NodeName, PersonName, Room
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # Default values — single source of truth for dataclass defaults AND
 # from_dict fallbacks. Operators override via config.yaml; omitting the

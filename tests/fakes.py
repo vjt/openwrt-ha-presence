@@ -4,9 +4,12 @@ FakeSource replaces ExporterSource. Never fake the engine or config."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
-from openwrt_presence.domain import StationReading
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from openwrt_presence.domain import StationReading
 
 
 @dataclass(frozen=True)
@@ -79,7 +82,7 @@ class FakeMqttClient:
 
     def publish(
         self, topic: str, payload: str = "", qos: int = 0, retain: bool = False
-    ) -> "_FakePublishResult":
+    ) -> _FakePublishResult:
         self.published.append(
             PublishedMsg(topic=topic, payload=str(payload), qos=qos, retain=retain)
         )

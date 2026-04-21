@@ -56,7 +56,7 @@ class PresenceEngine:
     # Public API
     # ------------------------------------------------------------------
 
-    def process_snapshot(
+    def process_snapshot(  # noqa: PLR0912 — three sequential per-MAC passes (visible→CONNECTED, disappeared→DEPARTING, expired→AWAY) cohere as one logical operation; splitting would add call plumbing without clarifying control flow
         self, now: datetime, readings: list[StationReading]
     ) -> list[StateChange]:
         """Process a complete station snapshot and return person-level changes.
@@ -93,7 +93,7 @@ class PresenceEngine:
                 tracker.departure_deadline = now + timedelta(seconds=timeout)
 
         # Expire DEPARTING → AWAY
-        for mac, tracker in self._devices.items():
+        for _mac, tracker in self._devices.items():
             if (
                 tracker.state == DeviceState.DEPARTING
                 and tracker.departure_deadline is not None

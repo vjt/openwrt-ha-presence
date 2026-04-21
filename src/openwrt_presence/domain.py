@@ -11,8 +11,10 @@ unrepresentable.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Literal, NewType
+from typing import TYPE_CHECKING, Literal, NewType
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 Mac = NewType("Mac", str)  # lowercase, colon-separated; normalized at boundary
 PersonName = NewType("PersonName", str)

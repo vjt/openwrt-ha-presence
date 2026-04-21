@@ -8,13 +8,13 @@ Invariants:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from openwrt_presence.domain import HomeState, StationReading
 from openwrt_presence.engine import PresenceEngine
-
 
 TRACKED_MACS = [
     "aa:bb:cc:dd:ee:01",
@@ -24,8 +24,8 @@ TRACKED_MACS = [
 
 
 _mac_strategy = st.sampled_from(
-    TRACKED_MACS
-    + [
+    [
+        *TRACKED_MACS,
         "ff:ff:ff:ff:ff:01",  # untracked
         "ff:ff:ff:ff:ff:02",
     ]
@@ -45,7 +45,7 @@ def test_never_defaults_to_home_for_untracked_mac(sample_config):
     @given(snapshots=st.lists(_snapshot_strategy, min_size=1, max_size=20))
     def inner(snapshots):
         engine = PresenceEngine(sample_config)
-        now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        now = datetime(2026, 1, 1, tzinfo=UTC)
         for snap in snapshots:
             changes = engine.process_snapshot(now, snap)
             now += timedelta(seconds=30)
@@ -62,7 +62,7 @@ def test_state_machine_never_reports_impossible_room(sample_config):
     @given(snapshots=st.lists(_snapshot_strategy, min_size=1, max_size=20))
     def inner(snapshots):
         engine = PresenceEngine(sample_config)
-        now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        now = datetime(2026, 1, 1, tzinfo=UTC)
         for snap in snapshots:
             changes = engine.process_snapshot(now, snap)
             now += timedelta(seconds=30)

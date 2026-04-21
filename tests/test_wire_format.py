@@ -22,9 +22,7 @@ from openwrt_presence.domain import (
     Room,
 )
 from openwrt_presence.mqtt import MqttPublisher
-from tests.conftest import sample_config  # noqa: F401 — fixture usage
 from tests.fakes import FakeMqttClient
-
 
 _GOLDEN = Path(__file__).parent / "wire_format_golden.json"
 

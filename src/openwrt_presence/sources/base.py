@@ -7,9 +7,10 @@ can structurally satisfy the contract without importing aiohttp.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
-from openwrt_presence.domain import StationReading
+if TYPE_CHECKING:
+    from openwrt_presence.domain import StationReading
 
 
 class Source(Protocol):

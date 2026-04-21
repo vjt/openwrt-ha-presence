@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -60,9 +60,7 @@ def sample_config() -> Config:
 
 def _ts(minutes: float = 0) -> datetime:
     """Deterministic timestamp helper."""
-    return datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc) + timedelta(
-        minutes=minutes
-    )
+    return datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC) + timedelta(minutes=minutes)
 
 
 @pytest.fixture

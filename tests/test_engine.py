@@ -247,7 +247,7 @@ class TestExitNodeTimeouts:
     """Departure timeout depends on last-seen node type."""
 
     def test_exit_node_uses_departure_timeout(self, sample_config):
-        """Device last seen on exit node (ap-garden/garden) uses departure_timeout (120s)."""
+        """Exit node (ap-garden) uses departure_timeout (120s)."""
         engine = PresenceEngine(sample_config)
         engine.process_snapshot(
             _ts(0),
@@ -262,7 +262,7 @@ class TestExitNodeTimeouts:
         assert changes[0].home is False
 
     def test_interior_node_uses_away_timeout(self, sample_config):
-        """Device last seen on interior node (ap-living/office) uses away_timeout (600s = 10 min)."""
+        """Interior node (ap-living) uses away_timeout (600s = 10 min)."""
         engine = PresenceEngine(sample_config)
         engine.process_snapshot(
             _ts(0),

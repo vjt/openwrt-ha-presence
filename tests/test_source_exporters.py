@@ -11,7 +11,6 @@ from openwrt_presence.domain import Mac, NodeName
 from openwrt_presence.logging import setup_logging
 from openwrt_presence.sources.exporters import ExporterSource
 
-
 # ── shared fixtures/constants ─────────────────────────────────────────
 SAMPLE_METRICS = """\
 # HELP wifi_station_signal_dbm Signal strength of associated stations
@@ -195,7 +194,9 @@ class TestNodeHealthTracking:
             await source.close()
 
         logs = _log_lines(stream)
-        unreachable = [l for l in logs if l.get("message") == "node_unreachable"]
+        unreachable = [
+            entry for entry in logs if entry.get("message") == "node_unreachable"
+        ]
         assert len(unreachable) == 1
         assert unreachable[0]["node"] == "ap-living"
 
@@ -215,7 +216,7 @@ class TestNodeHealthTracking:
             await source.close()
 
         logs = _log_lines(stream)
-        assert not any(l.get("message") == "node_unreachable" for l in logs)
+        assert not any(entry.get("message") == "node_unreachable" for entry in logs)
 
     async def test_healthy_node_no_log(self, aiohttp_server):
         app = web.Application()
@@ -236,7 +237,8 @@ class TestNodeHealthTracking:
 
         logs = _log_lines(stream)
         assert not any(
-            l.get("message") in ("node_unreachable", "node_recovered") for l in logs
+            entry.get("message") in ("node_unreachable", "node_recovered")
+            for entry in logs
         )
 
     # test_recovery_logs_info deferred to Session 2 (requires mid-test server

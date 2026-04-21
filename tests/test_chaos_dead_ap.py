@@ -4,15 +4,15 @@ exit-node short timeout if the last representative was on an exit AP."""
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from openwrt_presence.engine import PresenceEngine
 from openwrt_presence.domain import AwayState, Mac, NodeName, StationReading
+from openwrt_presence.engine import PresenceEngine
 
 
 def test_exit_node_ap_death_produces_away_after_departure_timeout(sample_config):
     engine = PresenceEngine(sample_config)
-    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2026, 1, 1, tzinfo=UTC)
     t = start
     engine.process_snapshot(
         t,
@@ -35,7 +35,7 @@ def test_exit_node_ap_death_produces_away_after_departure_timeout(sample_config)
 
 def test_interior_node_ap_death_uses_long_timeout(sample_config):
     engine = PresenceEngine(sample_config)
-    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2026, 1, 1, tzinfo=UTC)
     t = start
     engine.process_snapshot(
         t,
