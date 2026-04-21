@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging as stdlib_logging
 import os
 import signal
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import paho.mqtt.client as mqtt
@@ -156,6 +158,15 @@ async def _run(
             changes = engine.process_snapshot(now, readings)
             for change in changes:
                 publisher.publish_state(change)
+
+            # Liveness sentinel for Docker HEALTHCHECK (M8). Touched only on
+            # a fully successful cycle — query_error and all_nodes_unreachable
+            # branches deliberately skip this so the container goes unhealthy
+            # on silent freezes. Best-effort: dev envs without /tmp write are
+            # not fatal. Blocking I/O on a tmpfs path is nanoseconds, well
+            # under the poll interval — no asyncio.to_thread needed.
+            with contextlib.suppress(OSError):
+                Path("/tmp/eve_alive").touch(exist_ok=True)  # noqa: ASYNC240
     finally:
         await source.close()
         # Shutdown ordering is deliberate (H1): loop_stop() halts paho's
