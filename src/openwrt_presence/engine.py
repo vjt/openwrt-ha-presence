@@ -120,25 +120,6 @@ class PresenceEngine:
 
         return changes
 
-    def tick(self, now: datetime) -> list[StateChange]:
-        """Check all departure timers and return person-level changes."""
-        changes: list[StateChange] = []
-
-        for mac, tracker in self._devices.items():
-            if tracker.state != DeviceState.DEPARTING:
-                continue
-            if (
-                tracker.departure_deadline is not None
-                and now >= tracker.departure_deadline
-            ):
-                tracker.state = DeviceState.AWAY
-                tracker.departure_deadline = None
-                person = self._config.mac_to_person(mac)
-                if person is not None:
-                    changes.extend(self._emit_changes(person, now))
-
-        return changes
-
     def get_person_state(self, name: PersonName) -> PersonState:
         """Return the current aggregated state for a person."""
         return self._compute_person_state(name)

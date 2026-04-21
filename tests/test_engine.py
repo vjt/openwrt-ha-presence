@@ -111,9 +111,6 @@ class TestDeparture:
         assert len(changes) == 1
         assert changes[0].home is True
         assert changes[0].room == "bedroom"
-        # Tick past original deadline — should NOT trigger away
-        changes = engine.tick(_ts(10))
-        assert changes == []
 
     def test_multi_device_all_must_disappear(self, sample_config):
         engine = PresenceEngine(sample_config)
@@ -234,34 +231,6 @@ class TestNoSpuriousChanges:
         assert changes[0].room == "bedroom"
 
 
-class TestTick:
-    def test_tick_expires_departure(self, sample_config):
-        engine = PresenceEngine(sample_config)
-        engine.process_snapshot(
-            _ts(0),
-            [
-                _reading("aa:bb:cc:dd:ee:01", "ap-garden", -55),
-            ],
-        )
-        engine.process_snapshot(_ts(1), [])  # DEPARTING
-        changes = engine.tick(_ts(5))
-        assert len(changes) == 1
-        assert changes[0].home is False
-
-    def test_tick_does_not_repeat_away(self, sample_config):
-        engine = PresenceEngine(sample_config)
-        engine.process_snapshot(
-            _ts(0),
-            [
-                _reading("aa:bb:cc:dd:ee:01", "ap-garden", -55),
-            ],
-        )
-        engine.process_snapshot(_ts(1), [])  # DEPARTING
-        engine.tick(_ts(5))  # → AWAY
-        changes = engine.tick(_ts(10))
-        assert changes == []
-
-
 class TestExitNodeTimeouts:
     """Departure timeout depends on last-seen node type."""
 
@@ -328,22 +297,6 @@ class TestExitNodeTimeouts:
         )
         engine.process_snapshot(_ts(2), [])
         changes = engine.process_snapshot(_ts(5), [])
-        assert len(changes) == 1
-        assert changes[0].home is False
-
-    def test_tick_respects_node_timeout(self, sample_config):
-        """tick() also uses node-aware timeouts."""
-        engine = PresenceEngine(sample_config)
-        engine.process_snapshot(
-            _ts(0),
-            [
-                _reading("aa:bb:cc:dd:ee:01", "ap-living", -45),
-            ],
-        )
-        engine.process_snapshot(_ts(1), [])  # DEPARTING
-        changes = engine.tick(_ts(4))
-        assert changes == []
-        changes = engine.tick(_ts(12))
         assert len(changes) == 1
         assert changes[0].home is False
 
