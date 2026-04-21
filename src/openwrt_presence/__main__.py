@@ -67,7 +67,7 @@ async def _run() -> None:
         dns_cache_ttl=config.dns_cache_ttl,
     )
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     stop_event = asyncio.Event()
 
     def _signal_handler() -> None:
