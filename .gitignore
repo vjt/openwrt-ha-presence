@@ -1,5 +1,4 @@
 .claude
-CLAUDE.md
 .*.sw?
 __pycache__
 *.egg-info
