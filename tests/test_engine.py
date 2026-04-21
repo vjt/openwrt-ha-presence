@@ -268,3 +268,49 @@ class TestExitNodeTimeouts:
         changes = engine.tick(_ts(12))
         assert len(changes) == 1
         assert changes[0].home is False
+
+
+class TestGetPersonSnapshot:
+    """get_person_snapshot returns current state as a StateChange regardless
+    of whether the state transitioned.  Used for startup seed + reconnect
+    republish."""
+
+    def test_snapshot_for_home_person(self, sample_config):
+        engine = PresenceEngine(sample_config)
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "pingu", -42),
+        ])
+        snap = engine.get_person_snapshot("alice", _ts(0))
+        assert snap.person == "alice"
+        assert snap.home is True
+        assert snap.room == "office"
+        assert snap.mac == "aa:bb:cc:dd:ee:01"
+        assert snap.node == "pingu"
+        assert snap.rssi == -42
+
+    def test_snapshot_for_never_seen_person(self, sample_config):
+        engine = PresenceEngine(sample_config)
+        snap = engine.get_person_snapshot("bob", _ts(0))
+        assert snap.person == "bob"
+        assert snap.home is False
+        assert snap.room is None
+        assert snap.mac == ""
+        assert snap.node == ""
+        assert snap.rssi is None
+
+    def test_snapshot_for_departed_person(self, sample_config):
+        engine = PresenceEngine(sample_config)
+        engine.process_snapshot(_ts(0), [
+            _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),  # exit node
+        ])
+        engine.process_snapshot(_ts(1), [])  # DEPARTING
+        engine.process_snapshot(_ts(4), [])  # AWAY (>120s)
+        snap = engine.get_person_snapshot("alice", _ts(4))
+        assert snap.home is False
+        assert snap.room is None
+
+    def test_snapshot_unknown_person(self, sample_config):
+        engine = PresenceEngine(sample_config)
+        snap = engine.get_person_snapshot("nobody", _ts(0))
+        assert snap.person == "nobody"
+        assert snap.home is False
