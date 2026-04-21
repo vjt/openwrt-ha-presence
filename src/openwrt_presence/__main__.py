@@ -78,7 +78,11 @@ async def _run() -> None:
         loop.add_signal_handler(sig, _signal_handler)
 
     logger.info("initial_query")
-    readings = await source.query()
+    try:
+        readings = await source.query()
+    except Exception:
+        logger.exception("initial_query_failed")
+        readings = []
     now = datetime.now(UTC)
     engine.process_snapshot(now, readings)
 

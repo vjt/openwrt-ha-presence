@@ -18,3 +18,13 @@ def test_run_uses_get_running_loop():
     src = inspect.getsource(eve_main._run)
     assert "get_running_loop" in src
     assert "get_event_loop()" not in src
+
+
+def test_initial_query_failure_does_not_crash():
+    """If first query raises, _run continues into the poll loop (H9).
+
+    Full DI-based E2E test lands in Task 4.1. This is a source-inspection
+    guard until then.
+    """
+    src = inspect.getsource(eve_main._run)
+    assert src.count("initial_query_failed") >= 1
