@@ -1,0 +1,12 @@
+{
+  "include": ["src", "tests"],
+  "exclude": ["**/__pycache__", ".venv", "docs"],
+  "strict": ["src", "tests"],
+  "pythonVersion": "3.11",
+  "reportMissingTypeStubs": false,
+  "reportImplicitOverride": true,
+  "reportUnnecessaryTypeIgnoreComment": true,
+  "reportUninitializedInstanceVariable": true,
+  "reportMatchNotExhaustive": true,
+  "reportShadowedImports": true
+}
