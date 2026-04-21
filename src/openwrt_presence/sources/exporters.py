@@ -70,15 +70,20 @@ class ExporterSource:
             for node, url in self._node_urls.items()
         }
         for node, task in tasks.items():
+            first_seen = node not in self._node_healthy
             try:
                 ap_readings = await task
                 readings.extend(ap_readings)
-                if not self._node_healthy.get(node, True):
+                if first_seen:
+                    self._log.info("initial_node_state", node=node, healthy=True)
+                elif not self._node_healthy[node]:
                     self._log.info("node_recovered", node=node)
                 self._node_healthy[node] = True
             except Exception as exc:
                 was_healthy = self._node_healthy.get(node, True)
                 self._node_healthy[node] = False
+                if first_seen:
+                    self._log.info("initial_node_state", node=node, healthy=False)
                 if was_healthy:
                     self._log.warning(
                         "node_unreachable",

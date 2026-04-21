@@ -240,6 +240,72 @@ class TestNodeHealthTracking:
     # test_recovery_logs_info deferred to Session 2 (requires mid-test server
     # state change; re-add with a mutable handler once Task 2.4 lands).
 
+    async def test_first_scrape_logs_initial_state_healthy(self, aiohttp_server):
+        app = web.Application()
+        app.router.add_get("/metrics", _metrics_handler)
+        server = await aiohttp_server(app)
+        url = f"http://{server.host}:{server.port}/metrics"
+
+        stream = io.StringIO()
+        setup_logging(file=stream)
+        source = ExporterSource(
+            node_urls={"ap-living": url},
+            tracked_macs={"aa:bb:cc:dd:ee:01"},
+        )
+        try:
+            await source.query()
+            stream.truncate(0)
+            stream.seek(0)
+            await source.query()  # second call must not re-emit
+        finally:
+            await source.close()
+
+        # Rerun from a fresh stream to capture only the first-scrape log.
+        stream2 = io.StringIO()
+        setup_logging(file=stream2)
+        source2 = ExporterSource(
+            node_urls={"ap-living": url},
+            tracked_macs={"aa:bb:cc:dd:ee:01"},
+        )
+        try:
+            await source2.query()
+        finally:
+            await source2.close()
+
+        logs = _log_lines(stream2)
+        initial = [
+            entry for entry in logs if entry.get("message") == "initial_node_state"
+        ]
+        assert len(initial) == 1
+        assert initial[0]["node"] == "ap-living"
+        assert initial[0]["healthy"] is True
+
+        # Second call on the original source emitted nothing of this shape.
+        logs_after = _log_lines(stream)
+        assert not any(
+            entry.get("message") == "initial_node_state" for entry in logs_after
+        )
+
+    async def test_first_scrape_logs_initial_state_unhealthy(self):
+        stream = io.StringIO()
+        setup_logging(file=stream)
+        source = ExporterSource(
+            node_urls={"ap-living": _DEAD_URL},
+            tracked_macs={"aa:bb:cc:dd:ee:01"},
+        )
+        try:
+            await source.query()
+        finally:
+            await source.close()
+
+        logs = _log_lines(stream)
+        initial = [
+            entry for entry in logs if entry.get("message") == "initial_node_state"
+        ]
+        assert len(initial) == 1
+        assert initial[0]["node"] == "ap-living"
+        assert initial[0]["healthy"] is False
+
 
 class TestMalformedMetrics:
     """A malformed metric line from an AP is a real bug, not noise — it must
