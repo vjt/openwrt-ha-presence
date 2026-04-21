@@ -77,9 +77,7 @@ async def _run() -> None:
 
     source = ExporterSource(
         node_urls=config.node_urls,
-        tracked_macs={
-            mac for person_cfg in config.people.values() for mac in person_cfg.macs
-        },
+        tracked_macs=config.tracked_macs,
         dns_cache_ttl=config.dns_cache_ttl,
     )
 

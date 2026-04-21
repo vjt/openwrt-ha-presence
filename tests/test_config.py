@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 
 from openwrt_presence.config import Config, ConfigError
@@ -152,3 +154,19 @@ class TestExitNodes:
         assert (
             cfg.timeout_for_node(NodeName("unknown")) == 64800
         )  # unknown → interior default
+
+
+class TestConfigImmutability:
+    def test_config_is_frozen(self, sample_config: Config):
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            sample_config.poll_interval = 9999  # type: ignore[misc]
+
+    def test_config_exposes_tracked_macs(self, sample_config: Config):
+        expected = frozenset(
+            {
+                Mac("aa:bb:cc:dd:ee:01"),
+                Mac("aa:bb:cc:dd:ee:02"),
+                Mac("aa:bb:cc:dd:ee:03"),
+            }
+        )
+        assert sample_config.tracked_macs == expected

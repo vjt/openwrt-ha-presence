@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import re
+from typing import TYPE_CHECKING
 
 import aiohttp
 import structlog
 
 from openwrt_presence.domain import Mac, NodeName, StationReading
+
+if TYPE_CHECKING:
+    from collections.abc import Set as AbstractSet
 
 _METRIC_PREFIX = "wifi_station_signal_dbm"
 _METRIC_RE = re.compile(
@@ -22,11 +26,11 @@ class ExporterSource:
     def __init__(
         self,
         node_urls: dict[NodeName, str],
-        tracked_macs: set[Mac],
+        tracked_macs: AbstractSet[Mac],
         dns_cache_ttl: int = 300,
     ) -> None:
         self._node_urls = node_urls
-        self._tracked_macs: set[Mac] = set(tracked_macs)
+        self._tracked_macs: frozenset[Mac] = frozenset(tracked_macs)
         self._dns_cache_ttl = dns_cache_ttl
         self._connector: aiohttp.TCPConnector | None = None
         self._session: aiohttp.ClientSession | None = None

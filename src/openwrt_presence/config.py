@@ -34,7 +34,7 @@ class MqttConfig:
     password: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class Config:
     mqtt: MqttConfig
     nodes: dict[NodeName, NodeConfig]
@@ -44,7 +44,9 @@ class Config:
     poll_interval: int = 30
     exporter_port: int = 9100
     dns_cache_ttl: int = 300
-    _mac_lookup: dict[Mac, PersonName] = field(default_factory=dict, repr=False)
+    _mac_lookup: dict[Mac, PersonName] = field(
+        default_factory=dict, repr=False, compare=False
+    )
 
     @staticmethod
     def _normalize_mac(mac: str) -> Mac:
@@ -63,6 +65,11 @@ class Config:
     def has_exit_nodes(self) -> bool:
         """Return True if any node is marked as an exit node."""
         return any(n.exit for n in self.nodes.values())
+
+    @property
+    def tracked_macs(self) -> frozenset[Mac]:
+        """Return the set of all MACs known across all people."""
+        return frozenset(self._mac_lookup.keys())
 
     def timeout_for_node(self, node_name: NodeName) -> int:
         """Return the appropriate timeout for *node_name*.
