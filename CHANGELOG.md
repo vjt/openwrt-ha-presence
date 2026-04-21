@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- 🧰 **Pyright strict** + **ruff** + **pre-commit** + **GitHub Actions CI** — tooling floor for the hardening rewrite
+- 📜 `scripts/check.sh` — single-command green gate (ruff + pyright + pytest). Inherited from ha-verisure
+- 📦 Dev dependency bump: hypothesis, pytest-timeout, pre-commit, aiohttp speedups
+
 ## [0.5.0] — 2026-04-21
 
 ### Added
