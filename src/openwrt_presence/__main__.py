@@ -7,6 +7,7 @@ import logging as stdlib_logging
 import os
 import signal
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import paho.mqtt.client as mqtt
 import structlog
@@ -17,13 +18,16 @@ from openwrt_presence.logging import setup_logging
 from openwrt_presence.mqtt import MqttPublisher
 from openwrt_presence.sources.exporters import ExporterSource
 
+if TYPE_CHECKING:
+    from openwrt_presence.sources.base import Source
+
 logger = structlog.get_logger()
 
 
 async def _run(
     config: Config,
     client,  # MqttClient-shaped — FakeMqttClient in tests, paho in prod
-    source,  # Source-shaped — FakeSource in tests, ExporterSource in prod
+    source: Source,
 ) -> None:
     """Run eve to shutdown with injected broker client and source.
 
