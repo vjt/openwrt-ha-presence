@@ -137,6 +137,12 @@ async def _run() -> None:
                 publisher.publish_state(change)
     finally:
         await source.close()
+        # Shutdown ordering is deliberate (H1): loop_stop() halts paho's
+        # network thread FIRST, so the subsequent disconnect() cannot send
+        # a DISCONNECT packet. The broker sees a TCP drop and fires our
+        # LWT (status=offline) — exactly what we want: HA marks entities
+        # unavailable on planned shutdowns. Do NOT reorder without also
+        # rethinking the LWT semantics in mqtt.py.
         client.loop_stop()
         client.disconnect()
         logger.info("shutdown_complete")
