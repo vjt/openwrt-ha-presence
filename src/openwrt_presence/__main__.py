@@ -52,6 +52,7 @@ async def _run(
     # loop.call_soon_threadsafe to touch publisher state (C2).
     loop = asyncio.get_running_loop()
     stop_event = asyncio.Event()
+    connected_event = asyncio.Event()
 
     def _on_connect(
         client,
@@ -68,7 +69,13 @@ async def _run(
             except Exception:
                 logger.exception("on_connected_failed")
 
+        # Order matters: _reseed (discovery + availability + cached
+        # state) must land on the asyncio loop BEFORE connected_event
+        # fires, so _run's wait gate only proceeds past a broker that
+        # has already seen our discovery packets. FIFO scheduling on
+        # call_soon_threadsafe gives us that ordering for free.
         loop.call_soon_threadsafe(_reseed)
+        loop.call_soon_threadsafe(connected_event.set)
 
     def _on_disconnect(
         client,
@@ -86,6 +93,17 @@ async def _run(
 
     client.connect_async(config.mqtt.host, config.mqtt.port)
     client.loop_start()
+
+    # Wait for broker handshake before seeding state. on_connected (fired
+    # from _on_connect) is what publishes discovery + availability; running
+    # the initial query + publish_state before that would leave HA with no
+    # device entities to receive the /state payload.  10s timeout matches
+    # paho's first reconnect_delay window — if we can't get the broker in
+    # 10s we seed anyway (paho queues locally) and let reconnect fix it.
+    try:
+        await asyncio.wait_for(connected_event.wait(), timeout=10.0)
+    except TimeoutError:
+        logger.warning("mqtt_connect_timeout_seeding_anyway")
 
     logger.info("initial_query")
     try:

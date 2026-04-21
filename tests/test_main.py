@@ -18,8 +18,18 @@ from openwrt_presence.domain import Mac, NodeName, StationReading
 from tests.fakes import FakeMqttClient, FakeSource
 
 
-async def _run_briefly(config, client, source, wait: float = 0.2):
+async def _run_briefly(
+    config,
+    client,
+    source,
+    wait: float = 0.2,
+    auto_connect: bool = True,
+):
     task = asyncio.create_task(_run(config, client, source))
+    if auto_connect:
+        # Give _run a tick to reach connected_event.wait(), then connect.
+        await asyncio.sleep(0.05)
+        client.trigger_connect()
     await asyncio.sleep(wait)
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
@@ -116,6 +126,48 @@ async def test_reconnect_triggers_republish(sample_config):
         m.topic == "openwrt-presence/alice/state" and m.payload == "home"
         for m in client.published
     ), f"No alice=home republish after reconnect. Published: {dump}"
+
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.timeout(5)
+async def test_state_only_published_after_on_connect(sample_config):
+    """H6: no state publishes before paho's on_connect fires.
+
+    Prevents the boot race where initial_query + publish_state run
+    against a paho client that hasn't completed its handshake —
+    discovery and availability wouldn't have been re-sent yet, so HA
+    sees /state before the entity exists.
+    """
+    client = FakeMqttClient()
+    source = FakeSource()
+    source.schedule(
+        [
+            StationReading(
+                mac=Mac("aa:bb:cc:dd:ee:01"),
+                ap=NodeName("ap-garden"),
+                rssi=-55,
+            ),
+        ]
+    )
+
+    task = asyncio.create_task(_run(sample_config, client, source))
+    # Give _run time to reach the connected_event.wait() — it should
+    # block there until we trigger_connect.  No /state publishes yet.
+    await asyncio.sleep(0.15)
+    state_topics_before = [m for m in client.published if m.topic.endswith("/state")]
+    assert state_topics_before == [], (
+        f"state published before on_connect: {state_topics_before}"
+    )
+
+    client.trigger_connect()
+    # After trigger_connect: on_connected hops via call_soon_threadsafe
+    # and sets connected_event; _run proceeds to initial_query + seed.
+    await asyncio.sleep(0.25)
+    state_topics_after = [m for m in client.published if m.topic.endswith("/state")]
+    assert len(state_topics_after) >= 1, "state not published after on_connect hop"
 
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
