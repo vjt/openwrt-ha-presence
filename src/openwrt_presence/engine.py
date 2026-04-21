@@ -191,10 +191,15 @@ class PresenceEngine:
 
         Room is determined by the CONNECTED device with the strongest RSSI.
         If all devices are DEPARTING, the last known room is preserved.
+
+        Precondition: *name* must be in ``config.people``.  Callers iterate
+        the config; an unknown person is a programmer error, not a runtime
+        case.
         """
-        person_cfg = self._config.people.get(name)
-        if person_cfg is None:
-            return PersonState(home=False, room=None)
+        assert name in self._config.people, (
+            f"unknown person {name!r} — callers must iterate config.people"
+        )
+        person_cfg = self._config.people[name]
 
         home = False
         best_room: Room | None = None

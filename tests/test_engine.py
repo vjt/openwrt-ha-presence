@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
 
-from openwrt_presence.domain import AwayState, HomeState, StationReading
+import pytest
+
+from openwrt_presence.domain import AwayState, HomeState, PersonName, StationReading
 from openwrt_presence.engine import PresenceEngine
 
 
@@ -345,8 +347,9 @@ class TestGetPersonSnapshot:
         assert snap.last_mac == "aa:bb:cc:dd:ee:01"
         assert snap.last_node == "ap-garden"
 
-    def test_snapshot_unknown_person(self, sample_config):
+    def test_compute_person_state_rejects_unknown_person(self, sample_config):
+        """M7: _compute_person_state is internal and only accepts known
+        persons — callers must iterate config.people."""
         engine = PresenceEngine(sample_config)
-        snap = engine.get_person_snapshot("nobody", _ts(0))
-        assert isinstance(snap, AwayState)
-        assert snap.person == "nobody"
+        with pytest.raises(AssertionError, match="unknown person"):
+            engine._compute_person_state(PersonName("ghost"))
