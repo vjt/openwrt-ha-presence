@@ -8,7 +8,7 @@ import re
 import aiohttp
 import structlog
 
-from openwrt_presence.domain import StationReading
+from openwrt_presence.domain import Mac, NodeName, StationReading
 
 _METRIC_PREFIX = "wifi_station_signal_dbm"
 _METRIC_RE = re.compile(
@@ -21,16 +21,16 @@ class ExporterSource:
 
     def __init__(
         self,
-        node_urls: dict[str, str],
-        tracked_macs: set[str],
+        node_urls: dict[NodeName, str],
+        tracked_macs: set[Mac],
         dns_cache_ttl: int = 300,
     ) -> None:
         self._node_urls = node_urls
-        self._tracked_macs = {m.lower() for m in tracked_macs}
+        self._tracked_macs: set[Mac] = set(tracked_macs)
         self._dns_cache_ttl = dns_cache_ttl
         self._connector: aiohttp.TCPConnector | None = None
         self._session: aiohttp.ClientSession | None = None
-        self._node_healthy: dict[str, bool] = {}
+        self._node_healthy: dict[NodeName, bool] = {}
         self._log: structlog.stdlib.BoundLogger = structlog.get_logger()
 
     def _get_session(self) -> aiohttp.ClientSession:
@@ -87,7 +87,7 @@ class ExporterSource:
     async def _scrape_ap(
         self,
         session: aiohttp.ClientSession,
-        node: str,
+        node: NodeName,
         url: str,
     ) -> list[StationReading]:
         """Scrape a single AP and parse its metrics."""
@@ -98,7 +98,7 @@ class ExporterSource:
         return self._parse_metrics(text, node)
 
     @staticmethod
-    def _parse_metrics(text: str, ap: str) -> list[StationReading]:
+    def _parse_metrics(text: str, ap: NodeName) -> list[StationReading]:
         """Parse Prometheus text exposition format for wifi RSSI metrics.
 
         Lines that look like our metric (start with the prefix) but fail to
@@ -114,7 +114,7 @@ class ExporterSource:
             m = _METRIC_RE.match(line)
             if m is None:
                 raise ValueError(f"{ap}: malformed metric line: {line!r}")
-            mac = m.group(1).lower().replace("-", ":")
+            mac = Mac(m.group(1).lower().replace("-", ":"))
             rssi = int(float(m.group(2)))
             readings.append(StationReading(mac=mac, ap=ap, rssi=rssi))
         return readings

@@ -1,11 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from openwrt_presence.domain import PersonState, StateChange, StationReading
+from openwrt_presence.domain import (
+    Mac,
+    NodeName,
+    PersonName,
+    PersonState,
+    Room,
+    StateChange,
+    StationReading,
+)
 
 if TYPE_CHECKING:
     from openwrt_presence.config import Config
@@ -22,7 +30,7 @@ class _DeviceTracker:
     """Internal per-device state tracker."""
 
     state: DeviceState = DeviceState.AWAY
-    node: str = ""
+    node: NodeName = field(default_factory=lambda: NodeName(""))
     rssi: int = -100
     departure_deadline: datetime | None = None
 
@@ -35,8 +43,8 @@ class PresenceEngine:
 
     def __init__(self, config: Config) -> None:
         self._config = config
-        self._devices: dict[str, _DeviceTracker] = {}
-        self._last_person_state: dict[str, PersonState] = {}
+        self._devices: dict[Mac, _DeviceTracker] = {}
+        self._last_person_state: dict[PersonName, PersonState] = {}
 
         # Initialise every known person to away
         for name in config.people:
@@ -57,9 +65,9 @@ class PresenceEngine:
         - If DEPARTING and deadline passed → AWAY.
         """
         # Build best-RSSI-per-MAC lookup from readings (tracked MACs only)
-        visible: dict[str, StationReading] = {}
+        visible: dict[Mac, StationReading] = {}
         for r in readings:
-            mac = r.mac.lower()
+            mac = r.mac
             if self._config.mac_to_person(mac) is None:
                 continue
             if mac not in visible or r.rssi > visible[mac].rssi:
@@ -93,7 +101,7 @@ class PresenceEngine:
                 tracker.departure_deadline = None
 
         # Emit changes for all affected persons
-        affected: set[str] = set()
+        affected: set[PersonName] = set()
         for mac in visible:
             person = self._config.mac_to_person(mac)
             if person:
@@ -129,11 +137,11 @@ class PresenceEngine:
 
         return changes
 
-    def get_person_state(self, name: str) -> PersonState:
+    def get_person_state(self, name: PersonName) -> PersonState:
         """Return the current aggregated state for a person."""
         return self._compute_person_state(name)
 
-    def get_person_snapshot(self, name: str, now: datetime) -> StateChange:
+    def get_person_snapshot(self, name: PersonName, now: datetime) -> StateChange:
         """Return the current aggregated state as a :class:`StateChange`.
 
         Unlike :meth:`process_snapshot` this always returns a value regardless
@@ -158,18 +166,20 @@ class PresenceEngine:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _best_representative(self, person: str) -> tuple[str, str, int | None]:
+    def _best_representative(
+        self, person: PersonName
+    ) -> tuple[Mac, NodeName, int | None]:
         """Pick the strongest-RSSI device for *person* to represent them.
 
-        Returns ``("", "", None)`` if the person is unknown or has no
-        tracked devices.
+        Returns ``(Mac(""), NodeName(""), None)`` if the person is unknown
+        or has no tracked devices.
         """
         person_cfg = self._config.people.get(person)
         if person_cfg is None:
-            return "", "", None
+            return Mac(""), NodeName(""), None
 
-        best_mac = ""
-        best_node = ""
+        best_mac: Mac = Mac("")
+        best_node: NodeName = NodeName("")
         best_rssi: int | None = None
         best_rssi_val = -200
 
@@ -185,7 +195,7 @@ class PresenceEngine:
 
         return best_mac, best_node, best_rssi
 
-    def _compute_person_state(self, name: str) -> PersonState:
+    def _compute_person_state(self, name: PersonName) -> PersonState:
         """Aggregate device states into a person state.
 
         Room is determined by the CONNECTED device with the strongest RSSI.
@@ -196,7 +206,7 @@ class PresenceEngine:
             return PersonState(home=False, room=None)
 
         home = False
-        best_room: str | None = None
+        best_room: Room | None = None
         best_rssi: int = -200  # impossibly low
 
         for mac in person_cfg.macs:
@@ -229,7 +239,9 @@ class PresenceEngine:
 
         return PersonState(home=True, room=best_room)
 
-    def _emit_changes(self, person: str, timestamp: datetime) -> list[StateChange]:
+    def _emit_changes(
+        self, person: PersonName, timestamp: datetime
+    ) -> list[StateChange]:
         """Compare computed person state to last published; emit if changed."""
         new_state = self._compute_person_state(person)
         old_state = self._last_person_state.get(

@@ -9,7 +9,7 @@ from openwrt_presence.logging import log_state_computed, log_state_delivered
 
 if TYPE_CHECKING:
     from openwrt_presence.config import Config
-    from openwrt_presence.domain import StateChange
+    from openwrt_presence.domain import PersonName, StateChange
 
 
 _QOS = 1
@@ -32,7 +32,7 @@ class MqttPublisher:
         self._config = config
         self._client = client
         self._topic_prefix = config.mqtt.topic_prefix
-        self._last_state: dict[str, StateChange] = {}
+        self._last_state: dict[PersonName, StateChange] = {}
 
         self._client.will_set(
             f"{self._topic_prefix}/status",
@@ -59,7 +59,7 @@ class MqttPublisher:
             self._publish_device_tracker_discovery(person)
             self._publish_room_sensor_discovery(person)
 
-    def _publish_device_tracker_discovery(self, person: str) -> None:
+    def _publish_device_tracker_discovery(self, person: PersonName) -> None:
         topic = f"homeassistant/device_tracker/{person}_wifi/config"
         payload = {
             "name": f"{person.title()} WiFi",
@@ -74,7 +74,7 @@ class MqttPublisher:
         }
         self._client.publish(topic, json.dumps(payload), qos=_QOS, retain=True)
 
-    def _publish_room_sensor_discovery(self, person: str) -> None:
+    def _publish_room_sensor_discovery(self, person: PersonName) -> None:
         topic = f"homeassistant/sensor/{person}_room/config"
         payload = {
             "name": f"{person.title()} Room",
@@ -152,7 +152,7 @@ class MqttPublisher:
             retain=True,
         )
 
-    def cached_state(self, person: str) -> StateChange | None:
+    def cached_state(self, person: PersonName) -> StateChange | None:
         """Return the last :class:`StateChange` emitted for *person*, if any."""
         return self._last_state.get(person)
 

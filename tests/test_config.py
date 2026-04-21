@@ -1,6 +1,7 @@
 import pytest
 
 from openwrt_presence.config import Config, ConfigError
+from openwrt_presence.domain import Mac, NodeName
 
 
 def _base_config(**overrides):
@@ -22,22 +23,22 @@ class TestConfigLoading:
         assert len(sample_config.nodes) == 3
 
     def test_node_properties(self, sample_config: Config):
-        bedroom = sample_config.nodes["ap-bedroom"]
+        bedroom = sample_config.nodes[NodeName("ap-bedroom")]
         assert bedroom.room == "bedroom"
-        office = sample_config.nodes["ap-living"]
+        office = sample_config.nodes[NodeName("ap-living")]
         assert office.room == "office"
 
     def test_person_mac_lookup(self, sample_config: Config):
-        assert sample_config.mac_to_person("aa:bb:cc:dd:ee:01") == "alice"
-        assert sample_config.mac_to_person("aa:bb:cc:dd:ee:02") == "alice"
-        assert sample_config.mac_to_person("aa:bb:cc:dd:ee:03") == "bob"
-        assert sample_config.mac_to_person("ff:ff:ff:ff:ff:ff") is None
+        assert sample_config.mac_to_person(Mac("aa:bb:cc:dd:ee:01")) == "alice"
+        assert sample_config.mac_to_person(Mac("aa:bb:cc:dd:ee:02")) == "alice"
+        assert sample_config.mac_to_person(Mac("aa:bb:cc:dd:ee:03")) == "bob"
+        assert sample_config.mac_to_person(Mac("ff:ff:ff:ff:ff:ff")) is None
 
-    def test_mac_lookup_is_case_insensitive(self, sample_config: Config):
-        assert sample_config.mac_to_person("AA:BB:CC:DD:EE:01") == "alice"
+    def test_normalize_mac_lowercases(self):
+        assert Config._normalize_mac("AA:BB:CC:DD:EE:01") == "aa:bb:cc:dd:ee:01"
 
-    def test_mac_lookup_normalizes_separators(self, sample_config: Config):
-        assert sample_config.mac_to_person("AA-BB-CC-DD-EE-01") == "alice"
+    def test_normalize_mac_replaces_dashes(self):
+        assert Config._normalize_mac("AA-BB-CC-DD-EE-01") == "aa:bb:cc:dd:ee:01"
 
     def test_exporter_port_default(self, sample_config: Config):
         assert sample_config.exporter_port == 9100
@@ -47,7 +48,7 @@ class TestConfigLoading:
         assert cfg.exporter_port == 9200
 
     def test_node_url_default(self, sample_config: Config):
-        assert sample_config.nodes["ap-living"].url is None
+        assert sample_config.nodes[NodeName("ap-living")].url is None
 
     def test_node_url_override(self):
         cfg = Config.from_dict(
@@ -98,7 +99,7 @@ class TestConfigValidation:
 class TestExitNodes:
     def test_node_exit_defaults_to_false(self):
         cfg = Config.from_dict(_base_config())
-        assert cfg.nodes["ap1"].exit is False
+        assert cfg.nodes[NodeName("ap1")].exit is False
 
     def test_node_exit_true(self):
         cfg = Config.from_dict(
@@ -108,7 +109,7 @@ class TestExitNodes:
                 }
             )
         )
-        assert cfg.nodes["ap1"].exit is True
+        assert cfg.nodes[NodeName("ap1")].exit is True
 
     def test_away_timeout_default(self):
         cfg = Config.from_dict(_base_config())
@@ -135,7 +136,7 @@ class TestExitNodes:
 
     def test_timeout_for_node_no_exit_nodes(self):
         cfg = Config.from_dict(_base_config())
-        assert cfg.timeout_for_node("ap1") == 120  # departure_timeout for all
+        assert cfg.timeout_for_node(NodeName("ap1")) == 120  # departure_timeout for all
 
     def test_timeout_for_node_with_exit_nodes(self):
         cfg = Config.from_dict(
@@ -146,6 +147,8 @@ class TestExitNodes:
                 }
             )
         )
-        assert cfg.timeout_for_node("gate") == 120  # departure_timeout
-        assert cfg.timeout_for_node("office") == 64800  # away_timeout
-        assert cfg.timeout_for_node("unknown") == 64800  # unknown → interior default
+        assert cfg.timeout_for_node(NodeName("gate")) == 120  # departure_timeout
+        assert cfg.timeout_for_node(NodeName("office")) == 64800  # away_timeout
+        assert (
+            cfg.timeout_for_node(NodeName("unknown")) == 64800
+        )  # unknown → interior default

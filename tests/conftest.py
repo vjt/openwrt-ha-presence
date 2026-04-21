@@ -10,6 +10,7 @@ from openwrt_presence.config import (
     NodeConfig,
     PersonConfig,
 )
+from openwrt_presence.domain import Mac, NodeName, PersonName, Room
 
 
 @pytest.fixture
@@ -25,18 +26,20 @@ def sample_config() -> Config:
       - bob (1 MAC)
     """
     nodes = {
-        "ap-bedroom": NodeConfig(room="bedroom"),
-        "ap-living": NodeConfig(room="office"),
-        "ap-garden": NodeConfig(room="garden", exit=True),
+        NodeName("ap-bedroom"): NodeConfig(room=Room("bedroom")),
+        NodeName("ap-living"): NodeConfig(room=Room("office")),
+        NodeName("ap-garden"): NodeConfig(room=Room("garden"), exit=True),
     }
     people = {
-        "alice": PersonConfig(macs=["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"]),
-        "bob": PersonConfig(macs=["aa:bb:cc:dd:ee:03"]),
+        PersonName("alice"): PersonConfig(
+            macs=[Mac("aa:bb:cc:dd:ee:01"), Mac("aa:bb:cc:dd:ee:02")]
+        ),
+        PersonName("bob"): PersonConfig(macs=[Mac("aa:bb:cc:dd:ee:03")]),
     }
     mac_lookup = {
-        "aa:bb:cc:dd:ee:01": "alice",
-        "aa:bb:cc:dd:ee:02": "alice",
-        "aa:bb:cc:dd:ee:03": "bob",
+        Mac("aa:bb:cc:dd:ee:01"): PersonName("alice"),
+        Mac("aa:bb:cc:dd:ee:02"): PersonName("alice"),
+        Mac("aa:bb:cc:dd:ee:03"): PersonName("bob"),
     }
     return Config(
         mqtt=MqttConfig(

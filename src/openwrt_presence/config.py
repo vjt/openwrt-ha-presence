@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from openwrt_presence.domain import Mac, NodeName, PersonName, Room
+
 
 class ConfigError(Exception):
     """Raised when configuration is invalid."""
@@ -13,14 +15,14 @@ class ConfigError(Exception):
 
 @dataclass(frozen=True)
 class NodeConfig:
-    room: str
+    room: Room
     url: str | None = None
     exit: bool = False
 
 
 @dataclass(frozen=True)
 class PersonConfig:
-    macs: list[str]
+    macs: list[Mac]
 
 
 @dataclass(frozen=True)
@@ -35,22 +37,22 @@ class MqttConfig:
 @dataclass
 class Config:
     mqtt: MqttConfig
-    nodes: dict[str, NodeConfig]
-    people: dict[str, PersonConfig]
+    nodes: dict[NodeName, NodeConfig]
+    people: dict[PersonName, PersonConfig]
     departure_timeout: int
     away_timeout: int = 64800
     poll_interval: int = 30
     exporter_port: int = 9100
     dns_cache_ttl: int = 300
-    _mac_lookup: dict[str, str] = field(default_factory=dict, repr=False)
+    _mac_lookup: dict[Mac, PersonName] = field(default_factory=dict, repr=False)
 
     @staticmethod
-    def _normalize_mac(mac: str) -> str:
+    def _normalize_mac(mac: str) -> Mac:
         """Lowercase and replace ``-`` with ``:``."""
-        return mac.lower().replace("-", ":")
+        return Mac(mac.lower().replace("-", ":"))
 
     @property
-    def node_urls(self) -> dict[str, str]:
+    def node_urls(self) -> dict[NodeName, str]:
         """Return resolved metrics URLs for all nodes."""
         return {
             name: node.url or f"http://{name}:{self.exporter_port}/metrics"
@@ -62,7 +64,7 @@ class Config:
         """Return True if any node is marked as an exit node."""
         return any(n.exit for n in self.nodes.values())
 
-    def timeout_for_node(self, node_name: str) -> int:
+    def timeout_for_node(self, node_name: NodeName) -> int:
         """Return the appropriate timeout for *node_name*.
 
         If no exit nodes are configured, all nodes use ``departure_timeout``
@@ -94,10 +96,10 @@ class Config:
         nodes_raw: dict[str, Any] = data.get("nodes", {})
         if not nodes_raw:
             raise ConfigError("At least one node must be configured")
-        nodes: dict[str, NodeConfig] = {}
+        nodes: dict[NodeName, NodeConfig] = {}
         for name, ndata in nodes_raw.items():
-            nodes[name] = NodeConfig(
-                room=ndata["room"],
+            nodes[NodeName(name)] = NodeConfig(
+                room=Room(ndata["room"]),
                 url=ndata.get("url"),
                 exit=ndata.get("exit", False),
             )
@@ -107,9 +109,10 @@ class Config:
         if not people_raw:
             raise ConfigError("At least one person must be configured")
 
-        people: dict[str, PersonConfig] = {}
-        mac_lookup: dict[str, str] = {}
+        people: dict[PersonName, PersonConfig] = {}
+        mac_lookup: dict[Mac, PersonName] = {}
         for person_name, pdata in people_raw.items():
+            person = PersonName(person_name)
             macs = [cls._normalize_mac(m) for m in pdata["macs"]]
             for mac in macs:
                 if mac in mac_lookup:
@@ -117,8 +120,8 @@ class Config:
                         f"MAC {mac} is a duplicate — already assigned to "
                         f"{mac_lookup[mac]!r}"
                     )
-                mac_lookup[mac] = person_name
-            people[person_name] = PersonConfig(macs=macs)
+                mac_lookup[mac] = person
+            people[person] = PersonConfig(macs=macs)
 
         # --- departure_timeout ---
         departure_timeout: int = data["departure_timeout"]
@@ -154,9 +157,10 @@ class Config:
             data = yaml.safe_load(fh)
         return cls.from_dict(data)
 
-    def mac_to_person(self, mac: str) -> str | None:
+    def mac_to_person(self, mac: Mac) -> PersonName | None:
         """Return the person name for *mac*, or ``None`` if unknown.
 
-        Lookup is case-insensitive and normalises ``-`` separators to ``:``.
+        *mac* must already be normalised (lowercase, colon-separated).
+        Use :meth:`_normalize_mac` at external boundaries.
         """
-        return self._mac_lookup.get(self._normalize_mac(mac))
+        return self._mac_lookup.get(mac)
