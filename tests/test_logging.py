@@ -1,11 +1,11 @@
-import json
 import io
-from datetime import datetime, timezone
+import json
+from datetime import UTC, datetime
 
-from openwrt_presence.logging import setup_logging, log_state_change
 from openwrt_presence.engine import StateChange
+from openwrt_presence.logging import log_state_change, setup_logging
 
-_TS = datetime(2026, 2, 12, 10, 0, 0, tzinfo=timezone.utc)
+_TS = datetime(2026, 2, 12, 10, 0, 0, tzinfo=UTC)
 
 
 class TestStructuredLogging:

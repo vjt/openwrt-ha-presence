@@ -1,14 +1,13 @@
 import io
 import json
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, call
+from datetime import UTC, datetime
+from unittest.mock import MagicMock
 
-from openwrt_presence.config import Config
 from openwrt_presence.engine import StateChange
 from openwrt_presence.logging import setup_logging
 from openwrt_presence.mqtt import MqttPublisher
 
-_TS = datetime(2026, 2, 12, 10, 0, 0, tzinfo=timezone.utc)
+_TS = datetime(2026, 2, 12, 10, 0, 0, tzinfo=UTC)
 
 
 class TestMqttDiscovery:

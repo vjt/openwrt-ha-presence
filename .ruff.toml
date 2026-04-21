@@ -1,0 +1,33 @@
+target-version = "py311"
+line-length = 88
+src = ["src", "tests"]
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear (mutable default args, etc.)
+    "UP",  # pyupgrade
+    "SIM", # simplify
+    "RUF", # ruff-specific
+    "ASYNC", # async idioms
+    "PT",  # pytest-style
+    "TCH", # typing-only imports in TYPE_CHECKING
+    "PL",  # pylint subset
+    "N",   # pep8-naming
+    "ANN", # missing type annotations
+]
+ignore = [
+    "PLR0913",  # too many arguments — engine methods take config + readings + now
+    "PLR2004",  # magic value comparisons — occasionally acceptable
+    "ANN401",   # Any disallowed — covered by pyright strict
+]
+
+[lint.per-file-ignores]
+"tests/**" = ["ANN", "PLR2004"]
+
+[format]
+quote-style = "double"
+indent-style = "space"

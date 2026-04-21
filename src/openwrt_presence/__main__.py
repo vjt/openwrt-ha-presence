@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import paho.mqtt.client as mqtt
 import structlog
@@ -74,7 +74,7 @@ async def _run() -> None:
 
     logger.info("initial_query")
     readings = await source.query()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     engine.process_snapshot(now, readings)
 
     # Publish current state for every person regardless of transition.
@@ -93,7 +93,7 @@ async def _run() -> None:
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=config.poll_interval)
                 break  # stop_event was set
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass  # poll interval elapsed, do a cycle
 
             try:
@@ -102,7 +102,7 @@ async def _run() -> None:
                 logger.exception("query_error")
                 continue
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             changes = engine.process_snapshot(now, readings)
             for change in changes:
                 publisher.publish_state(change)

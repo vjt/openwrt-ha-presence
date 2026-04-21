@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from typing import Any, IO, TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, Any
 
 import structlog
 

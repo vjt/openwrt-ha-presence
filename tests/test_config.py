@@ -1,4 +1,5 @@
 import pytest
+
 from openwrt_presence.config import Config, ConfigError
 
 

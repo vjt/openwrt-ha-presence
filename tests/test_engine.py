@@ -1,8 +1,7 @@
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 
 from openwrt_presence.engine import (
     PresenceEngine,
-    PersonState,
     StationReading,
 )
 
@@ -12,7 +11,7 @@ def _reading(mac: str, ap: str, rssi: int) -> StationReading:
 
 
 def _ts(minutes: float = 0) -> datetime:
-    return datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=minutes)
+    return datetime(2026, 1, 1, tzinfo=UTC) + timedelta(minutes=minutes)
 
 
 class TestSnapshotBasicTransitions:

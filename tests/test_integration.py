@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from openwrt_presence.config import Config
-from openwrt_presence.engine import PresenceEngine, PersonState, StationReading
+from openwrt_presence.engine import PresenceEngine, StationReading
 
 
 def _ts(minutes: float = 0) -> datetime:
-    return datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=minutes)
+    return datetime(2026, 1, 1, tzinfo=UTC) + timedelta(minutes=minutes)
 
 
 def _reading(mac: str, ap: str, rssi: int) -> StationReading:
