@@ -25,21 +25,33 @@ async def _run() -> None:
 
     setup_logging()
 
-    # MQTT setup
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     if config.mqtt.username:
         client.username_pw_set(config.mqtt.username, config.mqtt.password)
+    client.reconnect_delay_set(min_delay=1, max_delay=60)
+    client.max_queued_messages_set(1000)
 
     publisher = MqttPublisher(config, client)
-    client.connect(config.mqtt.host, config.mqtt.port)
-    client.loop_start()
-
-    publisher.publish_discovery()
-    publisher.publish_online()
-
     engine = PresenceEngine(config)
 
-    # Create source adapter — scrapes each AP's /metrics endpoint directly
+    def _on_connect(
+        client: mqtt.Client, userdata, flags, reason_code, properties=None,
+    ) -> None:
+        logger.info("mqtt_connected", reason_code=str(reason_code))
+        publisher.on_connected()
+
+    def _on_disconnect(
+        client: mqtt.Client, userdata, disconnect_flags, reason_code,
+        properties=None,
+    ) -> None:
+        logger.warning("mqtt_disconnected", reason_code=str(reason_code))
+
+    client.on_connect = _on_connect
+    client.on_disconnect = _on_disconnect
+
+    client.connect_async(config.mqtt.host, config.mqtt.port)
+    client.loop_start()
+
     source = ExporterSource(
         node_urls=config.node_urls,
         tracked_macs={
@@ -50,7 +62,6 @@ async def _run() -> None:
         dns_cache_ttl=config.dns_cache_ttl,
     )
 
-    # Graceful shutdown on SIGTERM/SIGINT
     loop = asyncio.get_event_loop()
     stop_event = asyncio.Event()
 
@@ -61,17 +72,22 @@ async def _run() -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, _signal_handler)
 
-    # Initial query to establish current state
     logger.info("initial_query")
     readings = await source.query()
     now = datetime.now(timezone.utc)
     changes = engine.process_snapshot(now, readings)
     for change in changes:
-        publisher.publish_state(change)
         log_state_change(change)
+
+    # Seed publisher cache with current state for every person.  Closes the
+    # window where a person was already away at startup and no transition
+    # would ever be emitted — on_connect now has something to replay.
+    for person in config.people:
+        snapshot = engine.get_person_snapshot(person, now)
+        publisher.publish_state(snapshot)
+
     logger.info("poll_loop_started", interval=config.poll_interval)
 
-    # Poll loop
     try:
         while not stop_event.is_set():
             try:
