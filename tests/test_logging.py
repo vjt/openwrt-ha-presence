@@ -6,7 +6,7 @@ import io
 import json
 from datetime import UTC, datetime
 
-from openwrt_presence.engine import StateChange
+from openwrt_presence.domain import StateChange
 from openwrt_presence.logging import (
     log_state_computed,
     log_state_delivered,

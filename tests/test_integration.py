@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from openwrt_presence.config import Config
-from openwrt_presence.engine import PresenceEngine, StationReading
+from openwrt_presence.domain import StationReading
+from openwrt_presence.engine import PresenceEngine
 
 
 def _ts(minutes: float = 0) -> datetime:

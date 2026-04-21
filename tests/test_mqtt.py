@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timezone
 
 import pytest
 
-from openwrt_presence.engine import StateChange
+from openwrt_presence.domain import StateChange
 from openwrt_presence.logging import setup_logging
 from openwrt_presence.mqtt import MqttPublisher
 from tests.fakes import FakeMqttClient, PublishedMsg

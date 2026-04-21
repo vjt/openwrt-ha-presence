@@ -1,9 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
-from openwrt_presence.engine import (
-    PresenceEngine,
-    StationReading,
-)
+from openwrt_presence.domain import StationReading
+from openwrt_presence.engine import PresenceEngine
 
 
 def _reading(mac: str, ap: str, rssi: int) -> StationReading:

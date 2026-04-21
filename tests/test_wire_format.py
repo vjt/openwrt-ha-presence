@@ -13,7 +13,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from openwrt_presence.engine import StateChange
+from openwrt_presence.domain import StateChange
 from openwrt_presence.mqtt import MqttPublisher
 from tests.conftest import sample_config  # noqa: F401 — fixture usage
 from tests.fakes import FakeMqttClient, PublishedMsg

@@ -9,7 +9,7 @@ from openwrt_presence.logging import log_state_computed, log_state_delivered
 
 if TYPE_CHECKING:
     from openwrt_presence.config import Config
-    from openwrt_presence.engine import StateChange
+    from openwrt_presence.domain import StateChange
 
 
 _QOS = 1

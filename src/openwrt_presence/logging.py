@@ -8,7 +8,7 @@ from typing import IO, TYPE_CHECKING, Any
 import structlog
 
 if TYPE_CHECKING:
-    from openwrt_presence.engine import StateChange
+    from openwrt_presence.domain import StateChange
 
 
 def _uppercase_level(

@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from openwrt_presence.engine import StationReading
+from openwrt_presence.domain import StationReading
 
 
 @dataclass(frozen=True)

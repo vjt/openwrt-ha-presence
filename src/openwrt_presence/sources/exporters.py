@@ -8,7 +8,7 @@ import re
 import aiohttp
 import structlog
 
-from openwrt_presence.engine import StationReading
+from openwrt_presence.domain import StationReading
 
 _METRIC_PREFIX = "wifi_station_signal_dbm"
 _METRIC_RE = re.compile(
