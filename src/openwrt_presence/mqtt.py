@@ -8,21 +8,30 @@ if TYPE_CHECKING:
     from openwrt_presence.engine import StateChange
 
 
+_QOS = 1
+
+
 class MqttPublisher:
     """Publishes presence state to Home Assistant via MQTT.
 
     Handles HA MQTT Discovery, state updates, and availability (LWT).
+    All publishes use QoS 1 so messages survive broker hiccups: paho queues
+    unacked messages locally and retransmits on reconnect.
+
+    Maintains an in-process cache of the last :class:`StateChange` per
+    person so ``on_connected`` can re-seed the broker after a (re)connection.
     """
 
     def __init__(self, config: Config, client: Any) -> None:
         self._config = config
         self._client = client
         self._topic_prefix = config.mqtt.topic_prefix
+        self._last_state: dict[str, StateChange] = {}
 
-        # Set up Last Will and Testament so HA knows if we crash
         self._client.will_set(
             f"{self._topic_prefix}/status",
             payload="offline",
+            qos=_QOS,
             retain=True,
         )
 
@@ -57,7 +66,7 @@ class MqttPublisher:
             "availability_topic": self._availability_topic,
             "device": self._device_block(),
         }
-        self._client.publish(topic, json.dumps(payload), retain=True)
+        self._client.publish(topic, json.dumps(payload), qos=_QOS, retain=True)
 
     def _publish_room_sensor_discovery(self, person: str) -> None:
         topic = f"homeassistant/sensor/{person}_room/config"
@@ -69,21 +78,31 @@ class MqttPublisher:
             "icon": "mdi:map-marker",
             "device": self._device_block(),
         }
-        self._client.publish(topic, json.dumps(payload), retain=True)
+        self._client.publish(topic, json.dumps(payload), qos=_QOS, retain=True)
 
     def publish_state(self, change: StateChange) -> None:
-        """Publish state, room, and attributes for a person."""
+        """Publish state, room, and attributes for a person.
+
+        The change is cached so :meth:`on_connected` can replay it after a
+        reconnect.
+        """
+        self._last_state[change.person] = change
+        self._emit_state(change)
+
+    def _emit_state(self, change: StateChange) -> None:
         state_value = "home" if change.home else "not_home"
         room_value = change.room if change.room is not None else ""
 
         self._client.publish(
             f"{self._topic_prefix}/{change.person}/state",
             state_value,
+            qos=_QOS,
             retain=True,
         )
         self._client.publish(
             f"{self._topic_prefix}/{change.person}/room",
             room_value,
+            qos=_QOS,
             retain=True,
         )
         self._client.publish(
@@ -94,6 +113,7 @@ class MqttPublisher:
                 "node": change.node,
                 "rssi": change.rssi,
             }),
+            qos=_QOS,
             retain=True,
         )
 
@@ -102,5 +122,23 @@ class MqttPublisher:
         self._client.publish(
             self._availability_topic,
             "online",
+            qos=_QOS,
             retain=True,
         )
+
+    def cached_state(self, person: str) -> StateChange | None:
+        """Return the last :class:`StateChange` emitted for *person*, if any."""
+        return self._last_state.get(person)
+
+    def on_connected(self) -> None:
+        """Republish discovery, availability, and cached per-person state.
+
+        Call from the paho ``on_connect`` callback.  This is how we recover
+        from broker restarts (including Mosquitto major-version upgrades
+        that may drop retained state): the first successful reconnect
+        re-seeds the broker with current truth.
+        """
+        self.publish_discovery()
+        self.publish_online()
+        for change in self._last_state.values():
+            self._emit_state(change)

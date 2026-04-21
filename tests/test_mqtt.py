@@ -133,6 +133,12 @@ class TestMqttLwt:
         assert "status" in str(args)
         assert "offline" in str(args)
 
+    def test_lwt_uses_qos_1(self, sample_config):
+        mock_client = MagicMock()
+        MqttPublisher(sample_config, mock_client)
+        kwargs = mock_client.will_set.call_args.kwargs
+        assert kwargs.get("qos") == 1
+
     def test_publish_online(self, sample_config):
         mock_client = MagicMock()
         publisher = MqttPublisher(sample_config, mock_client)
@@ -141,3 +147,125 @@ class TestMqttLwt:
         online_calls = [c for c in calls if "status" in str(c)]
         assert len(online_calls) == 1
         assert "online" in str(online_calls[0])
+
+
+def _all_publish_qos_values(mock_client) -> list[int]:
+    """Extract the qos value from every publish() call, default 0."""
+    values: list[int] = []
+    for c in mock_client.publish.call_args_list:
+        if "qos" in c.kwargs:
+            values.append(c.kwargs["qos"])
+        elif len(c.args) >= 4:
+            values.append(c.args[3])
+        else:
+            values.append(0)
+    return values
+
+
+class TestMqttQos:
+    """Every outbound publish must use QoS 1 so broker hiccups don't lose messages."""
+
+    def test_state_publishes_use_qos_1(self, sample_config):
+        mock_client = MagicMock()
+        publisher = MqttPublisher(sample_config, mock_client)
+        change = StateChange(
+            person="alice", home=True, room="office",
+            mac="aa:bb:cc:dd:ee:01", node="ap-office", timestamp=_TS,
+        )
+        publisher.publish_state(change)
+        qos_values = _all_publish_qos_values(mock_client)
+        assert qos_values, "expected at least one publish"
+        assert all(q == 1 for q in qos_values), f"non-QoS-1 publish: {qos_values}"
+
+    def test_discovery_publishes_use_qos_1(self, sample_config):
+        mock_client = MagicMock()
+        publisher = MqttPublisher(sample_config, mock_client)
+        publisher.publish_discovery()
+        qos_values = _all_publish_qos_values(mock_client)
+        assert qos_values
+        assert all(q == 1 for q in qos_values)
+
+    def test_online_publish_uses_qos_1(self, sample_config):
+        mock_client = MagicMock()
+        publisher = MqttPublisher(sample_config, mock_client)
+        publisher.publish_online()
+        qos_values = _all_publish_qos_values(mock_client)
+        assert qos_values
+        assert all(q == 1 for q in qos_values)
+
+
+class TestMqttStateCacheAndReconnect:
+    """publish_state caches last emitted change; on_connected replays cache."""
+
+    def _change(self, person: str, home: bool, room: str | None) -> StateChange:
+        return StateChange(
+            person=person,
+            home=home,
+            room=room,
+            mac="aa:bb:cc:dd:ee:01",
+            node="ap-office" if home else "ap-garden",
+            timestamp=_TS,
+            rssi=-50 if home else None,
+        )
+
+    def test_publish_state_updates_cache(self, sample_config):
+        mock_client = MagicMock()
+        publisher = MqttPublisher(sample_config, mock_client)
+        c1 = self._change("alice", True, "office")
+        publisher.publish_state(c1)
+        assert publisher.cached_state("alice") == c1
+
+    def test_publish_state_overwrites_previous_cache_entry(self, sample_config):
+        mock_client = MagicMock()
+        publisher = MqttPublisher(sample_config, mock_client)
+        publisher.publish_state(self._change("alice", True, "office"))
+        c2 = self._change("alice", False, None)
+        publisher.publish_state(c2)
+        assert publisher.cached_state("alice") == c2
+
+    def test_on_connected_with_empty_cache_publishes_discovery_and_online(
+        self, sample_config,
+    ):
+        mock_client = MagicMock()
+        publisher = MqttPublisher(sample_config, mock_client)
+        publisher.on_connected()
+        topics = [c.args[0] for c in mock_client.publish.call_args_list]
+        # discovery: 2 people * 2 entities = 4
+        assert sum(1 for t in topics if t.startswith("homeassistant/")) == 4
+        assert any(t.endswith("/status") for t in topics)
+        # no state topics yet (cache empty)
+        assert not any("/state" in t or "/room" in t or "/attributes" in t
+                       for t in topics)
+
+    def test_on_connected_replays_cached_state(self, sample_config):
+        mock_client = MagicMock()
+        publisher = MqttPublisher(sample_config, mock_client)
+        publisher.publish_state(self._change("alice", True, "office"))
+        publisher.publish_state(self._change("bob", False, None))
+        mock_client.reset_mock()
+
+        publisher.on_connected()
+
+        topics = [c.args[0] for c in mock_client.publish.call_args_list]
+        # discovery (4) + online (1) + 2 persons * 3 topics (state/room/attributes) = 11
+        assert "openwrt-presence/alice/state" in topics
+        assert "openwrt-presence/bob/state" in topics
+        assert "openwrt-presence/alice/room" in topics
+        assert "openwrt-presence/alice/attributes" in topics
+
+    def test_on_connected_idempotent(self, sample_config):
+        """Two calls to on_connected must issue the same publishes each time."""
+        mock_client = MagicMock()
+        publisher = MqttPublisher(sample_config, mock_client)
+        publisher.publish_state(self._change("alice", True, "office"))
+        mock_client.reset_mock()
+
+        publisher.on_connected()
+        first_count = len(mock_client.publish.call_args_list)
+        mock_client.reset_mock()
+
+        publisher.on_connected()
+        second_count = len(mock_client.publish.call_args_list)
+
+        assert first_count == second_count
+        assert first_count > 0
