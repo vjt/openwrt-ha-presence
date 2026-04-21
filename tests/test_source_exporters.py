@@ -276,3 +276,50 @@ class TestMalformedMetrics:
             and entry.get("node") == "ap-broken"
             for entry in logs
         )
+
+
+class TestAllNodesUnhealthy:
+    """Breaker predicate: only trips when every configured node is
+    currently failing. A single healthy node keeps the engine running."""
+
+    async def test_false_before_any_query(self):
+        source = ExporterSource(
+            node_urls={"down": _DEAD_URL},
+            tracked_macs=set(),
+        )
+        try:
+            assert source.all_nodes_unhealthy is False
+        finally:
+            await source.close()
+
+    async def test_false_when_mixed(self, aiohttp_server):
+        app = web.Application()
+        app.router.add_get("/metrics", _metrics_handler)
+        server = await aiohttp_server(app)
+        url = f"http://{server.host}:{server.port}/metrics"
+
+        source = ExporterSource(
+            node_urls={
+                "up": url,
+                "down": _DEAD_URL,
+            },
+            tracked_macs={"aa:bb:cc:dd:ee:01"},
+            dns_cache_ttl=60,
+        )
+        try:
+            await source.query()
+            assert source.all_nodes_unhealthy is False
+        finally:
+            await source.close()
+
+    async def test_true_when_all_down(self):
+        source = ExporterSource(
+            node_urls={"down1": _DEAD_URL, "down2": _DEAD_URL},
+            tracked_macs=set(),
+            dns_cache_ttl=60,
+        )
+        try:
+            await source.query()
+            assert source.all_nodes_unhealthy is True
+        finally:
+            await source.close()

@@ -124,6 +124,13 @@ async def _run() -> None:
                 logger.exception("query_error")
                 continue
 
+            if source.all_nodes_unhealthy:
+                logger.error(
+                    "all_nodes_unreachable",
+                    nodes=list(config.node_urls.keys()),
+                )
+                continue
+
             now = datetime.now(UTC)
             changes = engine.process_snapshot(now, readings)
             for change in changes:

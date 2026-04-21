@@ -51,3 +51,13 @@ def test_on_connect_schedules_via_call_soon_threadsafe():
     """
     src = inspect.getsource(eve_main._run)
     assert "call_soon_threadsafe" in src
+
+
+def test_poll_loop_skips_on_all_nodes_unreachable():
+    """C3: when every AP is dark, engine must not run — avoids false AWAY.
+
+    Full DI E2E test in Task 4.1. Source-inspection guard until then.
+    """
+    src = inspect.getsource(eve_main._run)
+    assert "all_nodes_unhealthy" in src
+    assert "all_nodes_unreachable" in src

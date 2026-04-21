@@ -122,3 +122,17 @@ class ExporterSource:
     def _filter_tracked(self, readings: list[StationReading]) -> list[StationReading]:
         """Keep only readings for tracked MACs."""
         return [r for r in readings if r.mac in self._tracked_macs]
+
+    @property
+    def all_nodes_unhealthy(self) -> bool:
+        """True iff every configured node failed its last scrape.
+
+        Returns False before the first query (no evidence yet), and
+        False when any node is currently healthy. Used by __main__._run
+        as a circuit breaker: when this flips True, skip the engine
+        cycle so a complete network outage can't manufacture false
+        AWAY transitions (C3).
+        """
+        if not self._node_healthy:
+            return False
+        return not any(self._node_healthy.values())
