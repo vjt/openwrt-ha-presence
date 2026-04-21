@@ -10,9 +10,9 @@ import structlog
 
 from openwrt_presence.engine import StationReading
 
+_METRIC_PREFIX = "wifi_station_signal_dbm"
 _METRIC_RE = re.compile(
     r'^wifi_station_signal_dbm\{[^}]*mac="([^"]+)"[^}]*\}\s+(-?\d+(?:\.\d+)?)\s*$',
-    re.MULTILINE,
 )
 
 
@@ -92,16 +92,30 @@ class ExporterSource:
     ) -> list[StationReading]:
         """Scrape a single AP and parse its metrics."""
         async with session.get(url) as response:
-            text = await response.text()
+            response.raise_for_status()
+            body = await response.content.read(1 << 20)
+            text = body.decode("utf-8", errors="replace")
         return self._parse_metrics(text, node)
 
     @staticmethod
     def _parse_metrics(text: str, ap: str) -> list[StationReading]:
-        """Parse Prometheus text exposition format for wifi RSSI metrics."""
+        """Parse Prometheus text exposition format for wifi RSSI metrics.
+
+        Lines that look like our metric (start with the prefix) but fail to
+        parse raise ValueError. That bubbles up to the per-AP try/except in
+        query() and the node gets marked unhealthy — the operator sees
+        node_unreachable and investigates. Silent skipping of garbage from
+        an AP hides real bugs.
+        """
         readings: list[StationReading] = []
-        for match in _METRIC_RE.finditer(text):
-            mac = match.group(1).lower().replace("-", ":")
-            rssi = int(float(match.group(2)))
+        for line in text.splitlines():
+            if not line.startswith(_METRIC_PREFIX):
+                continue
+            m = _METRIC_RE.match(line)
+            if m is None:
+                raise ValueError(f"{ap}: malformed metric line: {line!r}")
+            mac = m.group(1).lower().replace("-", ":")
+            rssi = int(float(m.group(2)))
             readings.append(StationReading(mac=mac, ap=ap, rssi=rssi))
         return readings
 

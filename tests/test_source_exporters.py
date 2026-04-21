@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import json
 
-import pytest
 from aiohttp import web
 
 from openwrt_presence.logging import setup_logging
@@ -153,11 +152,7 @@ class TestExporterSource:
 
         assert all(r.mac == "aa:bb:cc:dd:ee:01" for r in readings)
 
-    @pytest.mark.xfail(
-        reason="fixed in Task 2.4 — M12 response status check",
-        strict=True,
-    )
-    async def test_503_treated_as_unreachable(self, aiohttp_server, caplog):
+    async def test_503_treated_as_unreachable(self, aiohttp_server):
         app = web.Application()
         app.router.add_get("/metrics", _error_handler)
         server = await aiohttp_server(app)
@@ -173,13 +168,9 @@ class TestExporterSource:
         finally:
             await source.close()
 
-        # After Task 2.4 (M12 fix), 503 becomes an exception → empty
-        # readings AND node_unreachable log. Asserting both.
         assert readings == []
-        assert any(
-            r.message == "node_unreachable"
-            for r in caplog.records  # type: ignore[attr-defined]
-        )
+        # Node must be flagged as unhealthy (503 is not a success)
+        assert source._node_healthy.get("ap-garden") is False
 
 
 # ── health tracking (dead-port for legitimate connect errors) ─────────
@@ -248,3 +239,40 @@ class TestNodeHealthTracking:
 
     # test_recovery_logs_info deferred to Session 2 (requires mid-test server
     # state change; re-add with a mutable handler once Task 2.4 lands).
+
+
+class TestMalformedMetrics:
+    """A malformed metric line from an AP is a real bug, not noise — it must
+    fail the scrape and flag the node unhealthy. See M11/M12 + ha-verisure rule."""
+
+    async def test_malformed_line_marks_node_unhealthy(self, aiohttp_server):
+        async def _handler(request: web.Request) -> web.Response:
+            return web.Response(
+                text='wifi_station_signal_dbm{mac="not-a-mac"} not-a-number\n',
+                content_type="text/plain",
+            )
+
+        app = web.Application()
+        app.router.add_get("/metrics", _handler)
+        server = await aiohttp_server(app)
+        url = f"http://{server.host}:{server.port}/metrics"
+
+        stream = io.StringIO()
+        setup_logging(file=stream)
+        source = ExporterSource(
+            node_urls={"ap-broken": url},
+            tracked_macs=set(),
+            dns_cache_ttl=60,
+        )
+        try:
+            readings = await source.query()
+        finally:
+            await source.close()
+
+        assert readings == []
+        logs = _log_lines(stream)
+        assert any(
+            entry.get("message") == "node_unreachable"
+            and entry.get("node") == "ap-broken"
+            for entry in logs
+        )
