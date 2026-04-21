@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🧩 Expanded `sample_config` fixture (3 nodes, 2 people, 3 MACs) via direct `Config(...)` constructor + `ts` timestamp helper — single source for integration tests
 - 📐 `Source` protocol in `sources/base.py` — `ExporterSource` and `FakeSource` both satisfy it structurally; `__main__._run(config, client, source: Source)` types the boundary (CRITICAL C5)
 - 🧪 Full end-to-end test suite for `__main__._run` via `FakeMqttClient` + `FakeSource` — replaces Session-1 source-inspection guards with real behavioral coverage (connect wiring, LWT ordering, startup gate, graceful shutdown) (CRITICAL C7)
+- 🎲 **Property-based engine tests** (`tests/test_engine_properties.py`) via `hypothesis` — fuzzes the state machine with ~100 random snapshot sequences per invariant. Catches fail-secure regressions no example-based test would surface: never-default-to-HOME for untracked MACs, HomeState room always configured. Shrinks counterexamples to minimal failing input
+- 🔥 **Chaos tests** (`tests/test_chaos_dead_ap.py`) — exit-node AP death produces `AwayState` within `departure_timeout` ± grace; interior-node AP death stays HOME for the full interior window (phone-doze safety net). Locks the two timeouts end-to-end against accidental regressions in `Config.timeout_for_node`
+- 🏛️ **AST-based architecture tests** (`tests/test_architecture.py`) — structural guards that parse source, not grep it: `engine.py` has no paho/aiohttp/mqtt/sources imports; sources don't reverse-import `engine`; no `datetime.now()` inside engine; no `Any` in public signatures outside `config.py` YAML boundary; value objects are `@dataclass(frozen=True)`. Prevents the layering regressions the type system can't catch
+- 🩺 **Docker healthcheck** (M8). `_run` touches `/tmp/eve_alive` after every successful poll cycle (skipped on `query_error` / `all_nodes_unreachable` — unhealthy cycles stay unhealthy). `Dockerfile.example` adds `HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3` checking mtime < 2m. Silent freezes now trigger container restart instead of hanging indefinitely
+- 👁️ **`initial_node_state` log on first scrape per node** (M10). Every AP now emits one `info` line with `healthy=true|false` the first time it's queried — operators see the full topology at startup, not only on transitions. Healthy-stays-healthy is no longer invisible
 
 ### Changed
 - 🧪 `test_mqtt.py` rewritten asserting on `PublishedMsg` outcomes (audit-log + reconnect-no-relog + idempotency coverage preserved)
@@ -30,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🌱 **Seed state after broker connect.** Startup now waits for `on_connect` up to 10s before publishing retained state; `_reseed` runs on the asyncio loop before the wait gate releases. Closes the HA flap where a reconnect could land retained state on a broker that hadn't yet received discovery (HIGH H6)
 - 🧠 **Single source of truth for per-person state — engine, not publisher.** `MqttPublisher._last_state` cache deleted; `_on_connect._reseed` builds snapshots from `engine.get_person_snapshot(person, now)`. Eliminates a race-prone duplicate that the paho thread and poll loop could both mutate (HIGH H11)
 - ⚙️ **Config defaults centralized** as `Final[int]` module constants (`DEFAULT_AWAY_TIMEOUT_SEC`, `DEFAULT_POLL_INTERVAL_SEC`, `DEFAULT_EXPORTER_PORT`, `DEFAULT_DNS_CACHE_TTL_SEC`). Dataclass field defaults and `from_dict` fallbacks reference the same constants — no more two-places-to-change drift. `departure_timeout` deliberately has no default (alarm-path safety — must be explicit) (HIGH H13)
+- 🏷️ **`Mac` / `PersonName` / `NodeName` / `Room` are now `NewType` aliases** (HIGH H3). MAC normalization happens exactly once at the `Config._normalize_mac` boundary; downstream code trusts the type. Deleted the defensive re-normalization in `_parse_metrics` and `mac_to_person` — the type system encodes the invariant
+- 🧊 **`StationReading` and `PersonState` are now frozen dataclasses** (MEDIUM M5). `HomeState` / `AwayState` / `Config` were already frozen; these two were the remaining mutable value types. No site across `src/` or `tests/` mutates their fields — freezing is pure invariant tightening, no behavior change
+- 🐍 **Python support window narrowed to `>=3.11,<3.14`**. Upper bound is explicit — 3.14 ships behavior changes to `asyncio.get_event_loop()` / `timezone.utc` handling we haven't validated
 
 ### Fixed (security-critical)
 - 🛡️ **Circuit breaker: all-APs-unreachable (C3).** When every configured AP fails its scrape in the same cycle, `__main__._run` now logs `all_nodes_unreachable` and skips `engine.process_snapshot` for that cycle. Closes the "core switch down arms the alarm on sleeping occupants" class of failure — engine state from the last healthy snapshot is preserved until evidence returns
@@ -55,7 +63,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Migration notes
 **Audit log schema change:** the `state_change` message is GONE, replaced by `state_computed` (engine produced a change) and `state_delivered` (MQTT accepted the three topics). `openwrt-monitor` handles both; any external log shipper filtering on `message=state_change` must update its filter. The structured fields (`person`, `presence`, `room`, `mac`, `node`, `rssi`, `event_ts`) are unchanged.
 
+**New log line `initial_node_state`.** On startup, eve emits one `info` line per configured AP with `healthy=true|false`. Log shippers asserting on exact startup line counts should budget for `len(config.nodes)` additional entries. The line is idempotent per node — only on the first scrape, not on subsequent cycles.
+
 **MQTT `never_seen` attributes payload** (C1): for a person tracked in `config.yaml` who has never been observed on any AP (e.g. fresh startup seed before their phone has connected), the `attributes` topic previously published `{"event_ts": "...", "mac": "", "node": "", "rssi": null}` and now publishes `{"event_ts": "..."}` — the `mac`/`node`/`rssi` keys are dropped entirely. HA template sensors reading `state_attr('device_tracker.alice_wifi', 'mac')` on a never-seen person get `None` instead of `""`. Both values are falsy in Jinja, so `{% if state_attr(...) %}` templates survive unchanged. Home and once-seen-now-away payloads are byte-identical to 0.5.0.
+
+**Python version pinned `>=3.11,<3.14`.** Docker base image stays `python:3.11-slim`. Upgrade to 3.14 deferred until `asyncio` / `datetime` interaction is re-validated.
+
+**Docker healthcheck added.** `Dockerfile.example` now carries `HEALTHCHECK`. Deployments with a custom `docker-compose.yaml` containing their own `healthcheck:` stanza should remove it (the Dockerfile's healthcheck is authoritative). Deployments using an in-place `docker-compose.yaml` with no `healthcheck:` need no changes — the directive is inherited from the image.
+
+**Retained MQTT contract unchanged** for observed persons. `home` / `not_home` payloads, QoS=1, `retain=True` on state / room / attributes / availability / discovery are byte-identical to v0.5.0 (except the `never_seen` attrs case noted above).
+
+**`CONFIG_PATH` and `config.yaml` schema unchanged.** No yaml edits required.
 
 ## [0.5.0] — 2026-04-21
 
