@@ -2,14 +2,14 @@
 
 Usage::
 
-    docker container logs eve -f 2>&1 | openwrt-monitor
-    docker container logs eve -f 2>&1 | python -m openwrt_presence.monitor
+    docker container logs eve -f 2>&1 | openwrt-presence-logtail
+    docker container logs eve -f 2>&1 | python -m openwrt_presence.logtail
 
 The schema consumed here is produced by :mod:`openwrt_presence.audit`
 (``state_computed`` / ``state_delivered``) and :mod:`openwrt_presence.logging`
-(structlog envelope: ``level``, ``ts``, ``message``).  See CLAUDE.md
-finding A1:A7 — coupling is acknowledged; :class:`AuditRecord` makes it
-type-checked rather than stringly-typed.
+(structlog envelope: ``level``, ``ts``, ``message``).  :class:`AuditRecord`
+types the coupling locally — producer and consumer don't share the
+definition; the CLI is schema-specific and declares its own view.
 """
 
 from __future__ import annotations
@@ -30,8 +30,8 @@ class AuditRecord(TypedDict):
     For AWAY transitions on never-seen persons, ``room``/``mac``/``node``/``rssi``
     are ``None``.
 
-    CLAUDE.md finding A1:A7 calls this coupling a deliberate non-decision;
-    this type makes it checkable rather than stringly-typed.
+    Producer shape lives in :mod:`openwrt_presence.audit`; this TypedDict
+    is the CLI's local view of it (unshared by design).
     """
 
     message: str

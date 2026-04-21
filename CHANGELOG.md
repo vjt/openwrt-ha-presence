@@ -63,10 +63,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documented
 - Shutdown ordering in `_run` finally block: `loop_stop()` before `disconnect()` is deliberate — the broker sees a TCP drop and fires our LWT, which is how HA marks entities unavailable on planned shutdowns (HIGH H1)
 - 🔐 **"This is security software" framing** promoted to top of `CLAUDE.md` — fail-secure, crash loud, audit trail non-optional, no smart, state the contract explicitly
-- 🧾 **Deliberate non-decisions section** in `CLAUDE.md` — Publisher protocol (H10) and runtime config reload (H14) are *intentionally* not built; monitor.py stringly-typed CLI coupling (A1:A7) is accepted complexity. Prevents future drift toward accidental speculative generality
+- 🧾 **Deliberate non-decisions section** in `CLAUDE.md` — Publisher protocol (H10) and runtime config reload (H14) are *intentionally* not built; the logtail CLI typed its audit-schema coupling via `AuditRecord` (superseding the original A1:A7 "accept stringly-typed" non-decision). Prevents future drift toward accidental speculative generality
 
 ### Migration notes
-**Audit log schema change:** the `state_change` message is GONE, replaced by `state_computed` (engine produced a change) and `state_delivered` (MQTT accepted the three topics). `openwrt-monitor` handles both; any external log shipper filtering on `message=state_change` must update its filter. The structured fields (`person`, `presence`, `room`, `mac`, `node`, `rssi`, `event_ts`) are unchanged.
+**Audit log schema change:** the `state_change` message is GONE, replaced by `state_computed` (engine produced a change) and `state_delivered` (MQTT accepted the three topics). `openwrt-presence-logtail` handles both; any external log shipper filtering on `message=state_change` must update its filter. The structured fields (`person`, `presence`, `room`, `mac`, `node`, `rssi`, `event_ts`) are unchanged.
+
+**CLI renamed:** `openwrt-monitor` → `openwrt-presence-logtail`. The `[project.scripts]` entry in `pyproject.toml` is renamed (module `monitor.py` → `logtail.py`). Run `pip install -e .` (or `pip install .`) to refresh the entry-point shim. Any scripts / README snippets / aliases referencing `openwrt-monitor` must update — there is no compatibility alias.
 
 **New log line `initial_node_state`.** On startup, eve emits one `info` line per configured AP with `healthy=true|false`. Log shippers asserting on exact startup line counts should budget for `len(config.nodes)` additional entries. The line is idempotent per node — only on the first scrape, not on subsequent cycles.
 

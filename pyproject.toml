@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-openwrt-monitor = "openwrt_presence.monitor:main"
+openwrt-presence-logtail = "openwrt_presence.logtail:main"
 
 [project.optional-dependencies]
 dev = [

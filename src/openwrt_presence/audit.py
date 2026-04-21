@@ -4,9 +4,10 @@ Moved out of ``logging.py`` so that ``logging.py`` is purely the
 structlog setup boundary.  Audit lines are a domain concern — they
 describe what the engine decided and whether the publish landed.
 
-The wire format is part of the HA-facing contract: ``openwrt-monitor``
-parses these lines; external log shippers filter on ``message``.  Do
-not change field names or semantics without a Migration note.
+The wire format is part of the HA-facing contract:
+``openwrt-presence-logtail`` parses these lines; external log shippers
+filter on ``message``.  Do not change field names or semantics without
+a Migration note.
 """
 
 from __future__ import annotations

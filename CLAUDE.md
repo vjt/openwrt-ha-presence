@@ -55,7 +55,7 @@ CONFIG_PATH=config.yaml python -m openwrt_presence
 docker compose up -d --build
 
 # tail logs pretty
-docker container logs <container> -f 2>&1 | openwrt-monitor
+docker container logs <container> -f 2>&1 | openwrt-presence-logtail
 ```
 
 ## Architecture
@@ -81,8 +81,9 @@ MqttPublisher.publish_state(change) → log_state_computed + log_state_delivered
   forensic trail; imported by `mqtt.py` at the publish gate
 - `logging.py` — structlog setup boundary → JSON on stderr, ISO `ts`,
   uppercase levels
-- `monitor.py` — stdin JSON → ANSI pretty-print (CLI: `openwrt-monitor`).
-  Consumes `audit.py` shape via a local `AuditRecord` TypedDict
+- `logtail.py` — stdin JSON → ANSI pretty-print (CLI:
+  `openwrt-presence-logtail`). Consumes `audit.py` shape via a local
+  `AuditRecord` TypedDict
 - `__main__.py` — wires it all together, signal-driven shutdown
 
 ### Node types — `exit` matters
@@ -220,10 +221,11 @@ schema changes — they are the documentation.
   a restart. SIGHUP + diff + in-place mutation is engineering-heavy
   for a 4-person household, and the LWT → HA transient unavailable
   is acceptable operational churn. See finding H14.
-- **Monitor → audit-log coupling is typed, not shared.** The
-  `openwrt-monitor` CLI consumes the JSON shape of `state_computed`
-  / `state_delivered` via a local `AuditRecord` TypedDict in
-  `monitor.py` (flat schema, `NotRequired` variant fields). Producer
+- **Logtail → audit-log coupling is typed, not shared.** The
+  `openwrt-presence-logtail` CLI consumes the JSON shape of
+  `state_computed` / `state_delivered` via a local `AuditRecord`
+  TypedDict in `logtail.py` (flat schema, `NotRequired` variant
+  fields). Producer
   and consumer don't share the definition — the TypedDict is
   checkable but purely local to the CLI. Reversed the original
   "accept stringly-typed" non-decision from A1:A7 once the cost of a
