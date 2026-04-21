@@ -1,0 +1,62 @@
+{
+  "away": [
+    {
+      "payload": "not_home",
+      "qos": 1,
+      "retain": true,
+      "topic": "openwrt-presence/alice/state"
+    },
+    {
+      "payload": "",
+      "qos": 1,
+      "retain": true,
+      "topic": "openwrt-presence/alice/room"
+    },
+    {
+      "payload": "{\"event_ts\": \"2026-04-21T13:00:00+00:00\", \"mac\": \"aa:bb:cc:dd:ee:01\", \"node\": \"ap-garden\", \"rssi\": null}",
+      "qos": 1,
+      "retain": true,
+      "topic": "openwrt-presence/alice/attributes"
+    }
+  ],
+  "home": [
+    {
+      "payload": "home",
+      "qos": 1,
+      "retain": true,
+      "topic": "openwrt-presence/alice/state"
+    },
+    {
+      "payload": "garden",
+      "qos": 1,
+      "retain": true,
+      "topic": "openwrt-presence/alice/room"
+    },
+    {
+      "payload": "{\"event_ts\": \"2026-04-21T12:00:00+00:00\", \"mac\": \"aa:bb:cc:dd:ee:01\", \"node\": \"ap-garden\", \"rssi\": -55}",
+      "qos": 1,
+      "retain": true,
+      "topic": "openwrt-presence/alice/attributes"
+    }
+  ],
+  "never_seen": [
+    {
+      "payload": "not_home",
+      "qos": 1,
+      "retain": true,
+      "topic": "openwrt-presence/bob/state"
+    },
+    {
+      "payload": "",
+      "qos": 1,
+      "retain": true,
+      "topic": "openwrt-presence/bob/room"
+    },
+    {
+      "payload": "{\"event_ts\": \"2026-04-21T14:00:00+00:00\", \"mac\": \"\", \"node\": \"\", \"rssi\": null}",
+      "qos": 1,
+      "retain": true,
+      "topic": "openwrt-presence/bob/attributes"
+    }
+  ]
+}
