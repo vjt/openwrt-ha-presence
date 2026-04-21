@@ -20,7 +20,7 @@ NodeName = NewType("NodeName", str)
 Room = NewType("Room", str)
 
 
-@dataclass
+@dataclass(frozen=True)
 class StationReading:
     """A single RSSI measurement from a Prometheus-compatible TSDB."""
 
@@ -62,7 +62,7 @@ class AwayState:
 StateChange = HomeState | AwayState
 
 
-@dataclass
+@dataclass(frozen=True)
 class PersonState:
     home: bool
     room: Room | None
