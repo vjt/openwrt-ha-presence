@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, Any, Final
 
 import structlog
 
+from openwrt_presence.audit import log_state_computed, log_state_delivered
 from openwrt_presence.domain import AwayState, HomeState
-from openwrt_presence.logging import log_state_computed, log_state_delivered
 
 if TYPE_CHECKING:
     from openwrt_presence.config import Config

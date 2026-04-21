@@ -1,16 +1,14 @@
-"""Structured JSON logging for the presence detection service."""
+"""Structured JSON logging setup — structlog → JSON to stderr.
+
+Audit-log helpers live in :mod:`openwrt_presence.audit`.
+"""
 
 from __future__ import annotations
 
 import sys
-from typing import IO, TYPE_CHECKING, Any
+from typing import IO, Any
 
 import structlog
-
-from openwrt_presence.domain import AwayState, HomeState
-
-if TYPE_CHECKING:
-    from openwrt_presence.domain import StateChange
 
 
 def _uppercase_level(
@@ -45,46 +43,3 @@ def setup_logging(*, file: IO[str] | None = None) -> None:
             file=file if file is not None else sys.stderr,
         ),
     )
-
-
-def _state_fields(change: StateChange) -> dict[str, Any]:
-    match change:
-        case HomeState():
-            return {
-                "person": change.person,
-                "presence": "home",
-                "room": change.room,
-                "mac": change.mac,
-                "node": change.node,
-                "rssi": change.rssi,
-                "event_ts": change.timestamp.isoformat(),
-            }
-        case AwayState():
-            return {
-                "person": change.person,
-                "presence": "away",
-                "room": None,
-                "mac": change.last_mac,
-                "node": change.last_node,
-                "rssi": None,
-                "event_ts": change.timestamp.isoformat(),
-            }
-
-
-def log_state_computed(change: StateChange) -> None:
-    """Audit log: the engine decided this state transition.
-
-    Emitted always, regardless of whether the MQTT publish succeeds.
-    Paired with :func:`log_state_delivered` — a computed without a
-    matching delivered within the same log burst means the publish
-    dropped silently.
-    """
-    structlog.get_logger().info("state_computed", **_state_fields(change))
-
-
-def log_state_delivered(change: StateChange) -> None:
-    """Audit log: all three topic publishes accepted by paho (rc == 0).
-
-    Emitted only when :meth:`MqttPublisher._emit_state` returns True.
-    """
-    structlog.get_logger().info("state_delivered", **_state_fields(change))

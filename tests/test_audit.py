@@ -6,6 +6,10 @@ import io
 import json
 from datetime import UTC, datetime
 
+from openwrt_presence.audit import (
+    log_state_computed,
+    log_state_delivered,
+)
 from openwrt_presence.domain import (
     AwayState,
     HomeState,
@@ -15,11 +19,7 @@ from openwrt_presence.domain import (
     Room,
     StateChange,
 )
-from openwrt_presence.logging import (
-    log_state_computed,
-    log_state_delivered,
-    setup_logging,
-)
+from openwrt_presence.logging import setup_logging
 
 
 def _change(person: str = "alice", home: bool = True) -> StateChange:
