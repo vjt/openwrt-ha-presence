@@ -65,3 +65,6 @@ def _ts(minutes: float = 0) -> datetime:
 @pytest.fixture
 def ts():
     return _ts
+
+
+pytest_plugins = ["aiohttp.pytest_plugin"]

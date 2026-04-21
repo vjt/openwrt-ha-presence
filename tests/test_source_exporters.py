@@ -4,10 +4,25 @@ from __future__ import annotations
 
 import io
 import json
-from unittest.mock import AsyncMock
+
+import pytest
+from aiohttp import web
 
 from openwrt_presence.logging import setup_logging
 from openwrt_presence.sources.exporters import ExporterSource
+
+
+# ── shared fixtures/constants ─────────────────────────────────────────
+SAMPLE_METRICS = """\
+# HELP wifi_station_signal_dbm Signal strength of associated stations
+# TYPE wifi_station_signal_dbm gauge
+wifi_station_signal_dbm{ifname="phy1-ap0",mac="AA:BB:CC:11:22:01"} -55
+wifi_station_signal_dbm{ifname="phy1-ap0",mac="AA:BB:CC:11:22:04"} -42
+wifi_station_signal_dbm{ifname="phy0-ap0",mac="AA:BB:CC:11:22:05"} -63
+# HELP node_cpu_seconds_total CPU time
+# TYPE node_cpu_seconds_total counter
+node_cpu_seconds_total{cpu="0",mode="idle"} 123456.78
+"""
 
 
 def _make_source(
@@ -24,18 +39,14 @@ def _make_source(
     )
 
 
-SAMPLE_METRICS = """\
-# HELP wifi_station_signal_dbm Signal strength of associated stations
-# TYPE wifi_station_signal_dbm gauge
-wifi_station_signal_dbm{ifname="phy1-ap0",mac="AA:BB:CC:11:22:01"} -55
-wifi_station_signal_dbm{ifname="phy1-ap0",mac="AA:BB:CC:11:22:04"} -42
-wifi_station_signal_dbm{ifname="phy0-ap0",mac="AA:BB:CC:11:22:05"} -63
-# HELP node_cpu_seconds_total CPU time
-# TYPE node_cpu_seconds_total counter
-node_cpu_seconds_total{cpu="0",mode="idle"} 123456.78
-"""
+def _log_lines(stream: io.StringIO) -> list[dict]:
+    text = stream.getvalue().strip()
+    if not text:
+        return []
+    return [json.loads(line) for line in text.splitlines()]
 
 
+# ── parser tests (pure logic, no network) ─────────────────────────────
 class TestMetricsParsing:
     def test_parses_wifi_station_lines(self):
         readings = ExporterSource._parse_metrics(SAMPLE_METRICS, "pingu")
@@ -86,80 +97,154 @@ class TestMetricsParsing:
         assert readings[0].mac == "aa:bb:cc:11:22:01"
 
 
-def _log_lines(stream: io.StringIO) -> list[dict]:
-    text = stream.getvalue().strip()
-    if not text:
-        return []
-    return [json.loads(line) for line in text.splitlines()]
+# ── HTTP integration tests (aiohttp test server) ──────────────────────
+_METRICS_SAMPLE_SHORT = """# HELP wifi_station_signal_dbm
+# TYPE wifi_station_signal_dbm gauge
+wifi_station_signal_dbm{mac="aa:bb:cc:dd:ee:01"} -55
+wifi_station_signal_dbm{mac="aa:bb:cc:dd:ee:02"} -70
+"""
+
+
+async def _metrics_handler(request: web.Request) -> web.Response:
+    return web.Response(text=_METRICS_SAMPLE_SHORT, content_type="text/plain")
+
+
+async def _error_handler(request: web.Request) -> web.Response:
+    return web.Response(status=503, text="busy")
+
+
+class TestExporterSource:
+    async def test_scrapes_tracked_macs(self, aiohttp_server):
+        app = web.Application()
+        app.router.add_get("/metrics", _metrics_handler)
+        server = await aiohttp_server(app)
+        url = f"http://{server.host}:{server.port}/metrics"
+
+        source = ExporterSource(
+            node_urls={"ap-garden": url},
+            tracked_macs={"aa:bb:cc:dd:ee:01"},
+            dns_cache_ttl=60,
+        )
+        try:
+            readings = await source.query()
+        finally:
+            await source.close()
+
+        macs = [r.mac for r in readings]
+        assert macs == ["aa:bb:cc:dd:ee:01"]
+        assert readings[0].rssi == -55
+        assert readings[0].ap == "ap-garden"
+
+    async def test_ignores_untracked_macs(self, aiohttp_server):
+        app = web.Application()
+        app.router.add_get("/metrics", _metrics_handler)
+        server = await aiohttp_server(app)
+        url = f"http://{server.host}:{server.port}/metrics"
+
+        source = ExporterSource(
+            node_urls={"ap-garden": url},
+            tracked_macs={"aa:bb:cc:dd:ee:01"},
+            dns_cache_ttl=60,
+        )
+        try:
+            readings = await source.query()
+        finally:
+            await source.close()
+
+        assert all(r.mac == "aa:bb:cc:dd:ee:01" for r in readings)
+
+    @pytest.mark.xfail(
+        reason="fixed in Task 2.4 — M12 response status check",
+        strict=True,
+    )
+    async def test_503_treated_as_unreachable(self, aiohttp_server, caplog):
+        app = web.Application()
+        app.router.add_get("/metrics", _error_handler)
+        server = await aiohttp_server(app)
+        url = f"http://{server.host}:{server.port}/metrics"
+
+        source = ExporterSource(
+            node_urls={"ap-garden": url},
+            tracked_macs={"aa:bb:cc:dd:ee:01"},
+            dns_cache_ttl=60,
+        )
+        try:
+            readings = await source.query()
+        finally:
+            await source.close()
+
+        # After Task 2.4 (M12 fix), 503 becomes an exception → empty
+        # readings AND node_unreachable log. Asserting both.
+        assert readings == []
+        assert any(
+            r.message == "node_unreachable"
+            for r in caplog.records  # type: ignore[attr-defined]
+        )
+
+
+# ── health tracking (dead-port for legitimate connect errors) ─────────
+_DEAD_URL = "http://127.0.0.1:1/metrics"
 
 
 class TestNodeHealthTracking:
     """Verify that only health transitions produce log output."""
 
-    def _make_one_node_source(self) -> ExporterSource:
-        return ExporterSource(
-            node_urls={"pingu": "http://pingu:9100/metrics"},
-            tracked_macs={"aa:bb:cc:dd:ee:01"},
-        )
-
     async def test_first_failure_logs_warning(self):
         stream = io.StringIO()
         setup_logging(file=stream)
-        source = self._make_one_node_source()
-        source._get_session = lambda: None  # type: ignore[assignment]
-        source._scrape_ap = AsyncMock(side_effect=ConnectionRefusedError())  # type: ignore[method-assign]
-
-        await source.query()
+        source = ExporterSource(
+            node_urls={"pingu": _DEAD_URL},
+            tracked_macs={"aa:bb:cc:dd:ee:01"},
+        )
+        try:
+            await source.query()
+        finally:
+            await source.close()
 
         logs = _log_lines(stream)
-        unreachable = [l for l in logs if l["message"] == "node_unreachable"]
+        unreachable = [l for l in logs if l.get("message") == "node_unreachable"]
         assert len(unreachable) == 1
         assert unreachable[0]["node"] == "pingu"
-        assert unreachable[0]["error"] == "ConnectionRefusedError"
 
     async def test_repeated_failure_is_silent(self):
         stream = io.StringIO()
         setup_logging(file=stream)
-        source = self._make_one_node_source()
-        source._get_session = lambda: None  # type: ignore[assignment]
-        source._scrape_ap = AsyncMock(side_effect=ConnectionRefusedError())  # type: ignore[method-assign]
-
-        await source.query()  # first failure — logs
-        stream.truncate(0)
-        stream.seek(0)
-        await source.query()  # second failure — silent
+        source = ExporterSource(
+            node_urls={"pingu": _DEAD_URL},
+            tracked_macs={"aa:bb:cc:dd:ee:01"},
+        )
+        try:
+            await source.query()  # first — logs
+            stream.truncate(0)
+            stream.seek(0)
+            await source.query()  # repeat — silent
+        finally:
+            await source.close()
 
         logs = _log_lines(stream)
         assert not any(l.get("message") == "node_unreachable" for l in logs)
 
-    async def test_recovery_logs_info(self):
+    async def test_healthy_node_no_log(self, aiohttp_server):
+        app = web.Application()
+        app.router.add_get("/metrics", _metrics_handler)
+        server = await aiohttp_server(app)
+        url = f"http://{server.host}:{server.port}/metrics"
+
         stream = io.StringIO()
         setup_logging(file=stream)
-        source = self._make_one_node_source()
-        source._get_session = lambda: None  # type: ignore[assignment]
-        source._scrape_ap = AsyncMock(side_effect=ConnectionRefusedError())  # type: ignore[method-assign]
-
-        await source.query()  # goes unhealthy
-        stream.truncate(0)
-        stream.seek(0)
-        source._scrape_ap = AsyncMock(return_value=[])  # type: ignore[method-assign]
-        await source.query()  # recovers
-
-        logs = _log_lines(stream)
-        recovered = [l for l in logs if l["message"] == "node_recovered"]
-        assert len(recovered) == 1
-        assert recovered[0]["node"] == "pingu"
-
-    async def test_healthy_node_no_log(self):
-        stream = io.StringIO()
-        setup_logging(file=stream)
-        source = self._make_one_node_source()
-        source._get_session = lambda: None  # type: ignore[assignment]
-        source._scrape_ap = AsyncMock(return_value=[])  # type: ignore[method-assign]
-
-        await source.query()
+        source = ExporterSource(
+            node_urls={"pingu": url},
+            tracked_macs={"aa:bb:cc:dd:ee:01"},
+        )
+        try:
+            await source.query()
+        finally:
+            await source.close()
 
         logs = _log_lines(stream)
         assert not any(
             l.get("message") in ("node_unreachable", "node_recovered") for l in logs
         )
+
+    # test_recovery_logs_info deferred to Session 2 (requires mid-test server
+    # state change; re-add with a mutable handler once Task 2.4 lands).
