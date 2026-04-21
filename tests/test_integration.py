@@ -17,26 +17,28 @@ def _reading(mac: str, ap: str, rssi: int) -> StationReading:
 
 
 def _make_config() -> Config:
-    return Config.from_dict({
-        "mqtt": {"host": "localhost", "port": 1883, "topic_prefix": "test"},
-        "nodes": {
-            "mowgli": {"room": "garden", "exit": True},
-            "pingu": {"room": "office"},
-            "albert": {"room": "bedroom"},
-            "golem": {"room": "livingroom"},
-            "gordon": {"room": "kitchen"},
-        },
-        "departure_timeout": 120,
-        "away_timeout": 600,
-        "people": {
-            "alice": {
-                "macs": ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"],
+    return Config.from_dict(
+        {
+            "mqtt": {"host": "localhost", "port": 1883, "topic_prefix": "test"},
+            "nodes": {
+                "mowgli": {"room": "garden", "exit": True},
+                "pingu": {"room": "office"},
+                "albert": {"room": "bedroom"},
+                "golem": {"room": "livingroom"},
+                "gordon": {"room": "kitchen"},
             },
-            "bob": {
-                "macs": ["aa:bb:cc:dd:ee:03"],
+            "departure_timeout": 120,
+            "away_timeout": 600,
+            "people": {
+                "alice": {
+                    "macs": ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"],
+                },
+                "bob": {
+                    "macs": ["aa:bb:cc:dd:ee:03"],
+                },
             },
-        },
-    })
+        }
+    )
 
 
 class TestArrivalAndRoaming:
@@ -47,39 +49,54 @@ class TestArrivalAndRoaming:
         engine = PresenceEngine(config)
 
         # Alice arrives — phone visible on garden AP
-        changes = engine.process_snapshot(_ts(0), [
-            _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),
-        ])
+        changes = engine.process_snapshot(
+            _ts(0),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "mowgli", -55),
+            ],
+        )
         assert len(changes) == 1
         assert changes[0].person == "alice"
         assert changes[0].home is True
         assert changes[0].room == "garden"
 
         # Alice walks inside — phone visible on office and garden, office stronger
-        changes = engine.process_snapshot(_ts(0.5), [
-            _reading("aa:bb:cc:dd:ee:01", "mowgli", -70),
-            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
-        ])
+        changes = engine.process_snapshot(
+            _ts(0.5),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "mowgli", -70),
+                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+            ],
+        )
         assert len(changes) == 1
         assert changes[0].room == "office"
 
         # Alice moves to kitchen — only kitchen AP sees her
-        changes = engine.process_snapshot(_ts(1), [
-            _reading("aa:bb:cc:dd:ee:01", "gordon", -42),
-        ])
+        changes = engine.process_snapshot(
+            _ts(1),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "gordon", -42),
+            ],
+        )
         assert len(changes) == 1
         assert changes[0].room == "kitchen"
 
         # Stable in kitchen for several polls — no changes
-        changes = engine.process_snapshot(_ts(1.5), [
-            _reading("aa:bb:cc:dd:ee:01", "gordon", -44),
-        ])
+        changes = engine.process_snapshot(
+            _ts(1.5),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "gordon", -44),
+            ],
+        )
         assert changes == []
 
         # Alice goes to garden gate, walks away — last reading from garden
-        changes = engine.process_snapshot(_ts(10), [
-            _reading("aa:bb:cc:dd:ee:01", "mowgli", -65),
-        ])
+        changes = engine.process_snapshot(
+            _ts(10),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "mowgli", -65),
+            ],
+        )
         assert len(changes) == 1
         assert changes[0].room == "garden"
 
@@ -112,19 +129,25 @@ class TestArrivalAndRoaming:
         engine = PresenceEngine(config)
 
         # Phone visible on three APs simultaneously
-        changes = engine.process_snapshot(_ts(0), [
-            _reading("aa:bb:cc:dd:ee:01", "pingu", -60),
-            _reading("aa:bb:cc:dd:ee:01", "albert", -50),
-            _reading("aa:bb:cc:dd:ee:01", "gordon", -70),
-        ])
+        changes = engine.process_snapshot(
+            _ts(0),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "pingu", -60),
+                _reading("aa:bb:cc:dd:ee:01", "albert", -50),
+                _reading("aa:bb:cc:dd:ee:01", "gordon", -70),
+            ],
+        )
         assert len(changes) == 1
         assert changes[0].room == "bedroom"  # albert has strongest RSSI
 
         # Next poll: office RSSI improves
-        changes = engine.process_snapshot(_ts(0.5), [
-            _reading("aa:bb:cc:dd:ee:01", "pingu", -40),
-            _reading("aa:bb:cc:dd:ee:01", "albert", -55),
-        ])
+        changes = engine.process_snapshot(
+            _ts(0.5),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "pingu", -40),
+                _reading("aa:bb:cc:dd:ee:01", "albert", -55),
+            ],
+        )
         assert len(changes) == 1
         assert changes[0].room == "office"
 
@@ -137,27 +160,36 @@ class TestMultiDevice:
         engine = PresenceEngine(config)
 
         # Both devices visible in office
-        changes = engine.process_snapshot(_ts(0), [
-            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
-            _reading("aa:bb:cc:dd:ee:02", "pingu", -50),
-        ])
+        changes = engine.process_snapshot(
+            _ts(0),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:02", "pingu", -50),
+            ],
+        )
         assert len(changes) == 1
         assert changes[0].person == "alice"
         assert changes[0].home is True
 
         # Phone dozes (disappears), laptop still visible
-        changes = engine.process_snapshot(_ts(1), [
-            _reading("aa:bb:cc:dd:ee:02", "pingu", -50),
-        ])
+        changes = engine.process_snapshot(
+            _ts(1),
+            [
+                _reading("aa:bb:cc:dd:ee:02", "pingu", -50),
+            ],
+        )
         assert changes == []
         state = engine.get_person_state("alice")
         assert state.home is True
         assert state.room == "office"
 
         # Even past timeout — laptop keeps alice home
-        changes = engine.process_snapshot(_ts(10), [
-            _reading("aa:bb:cc:dd:ee:02", "pingu", -48),
-        ])
+        changes = engine.process_snapshot(
+            _ts(10),
+            [
+                _reading("aa:bb:cc:dd:ee:02", "pingu", -48),
+            ],
+        )
         assert changes == []
         state = engine.get_person_state("alice")
         assert state.home is True
@@ -168,10 +200,13 @@ class TestMultiDevice:
         engine = PresenceEngine(config)
 
         # Phone in bedroom, laptop in office
-        changes = engine.process_snapshot(_ts(0), [
-            _reading("aa:bb:cc:dd:ee:01", "albert", -60),
-            _reading("aa:bb:cc:dd:ee:02", "pingu", -45),  # stronger
-        ])
+        changes = engine.process_snapshot(
+            _ts(0),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "albert", -60),
+                _reading("aa:bb:cc:dd:ee:02", "pingu", -45),  # stronger
+            ],
+        )
         assert len(changes) == 1
         assert changes[0].room == "office"  # laptop's room, stronger RSSI
 
@@ -180,10 +215,13 @@ class TestMultiDevice:
         config = _make_config()
         engine = PresenceEngine(config)
 
-        engine.process_snapshot(_ts(0), [
-            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
-            _reading("aa:bb:cc:dd:ee:02", "pingu", -50),
-        ])
+        engine.process_snapshot(
+            _ts(0),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:02", "pingu", -50),
+            ],
+        )
         # Both disappear
         engine.process_snapshot(_ts(1), [])
         # Past away_timeout (600s) — pingu is interior
@@ -200,25 +238,34 @@ class TestMultiplePeople:
         config = _make_config()
         engine = PresenceEngine(config)
 
-        changes = engine.process_snapshot(_ts(0), [
-            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
-            _reading("aa:bb:cc:dd:ee:03", "albert", -50),
-        ])
+        changes = engine.process_snapshot(
+            _ts(0),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+                _reading("aa:bb:cc:dd:ee:03", "albert", -50),
+            ],
+        )
         assert len(changes) == 2
         persons = {c.person for c in changes}
         assert persons == {"alice", "bob"}
 
         # Bob leaves, Alice stays
-        changes = engine.process_snapshot(_ts(1), [
-            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
-        ])
+        changes = engine.process_snapshot(
+            _ts(1),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+            ],
+        )
         # No immediate change (bob is DEPARTING)
         assert changes == []
 
         # Past away_timeout (600s) — albert is interior
-        changes = engine.process_snapshot(_ts(12), [
-            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
-        ])
+        changes = engine.process_snapshot(
+            _ts(12),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+            ],
+        )
         assert len(changes) == 1
         assert changes[0].person == "bob"
         assert changes[0].home is False
@@ -235,9 +282,12 @@ class TestExitInteriorIntegration:
         config = _make_config()
         engine = PresenceEngine(config)
 
-        engine.process_snapshot(_ts(0), [
-            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
-        ])
+        engine.process_snapshot(
+            _ts(0),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+            ],
+        )
         # Phone dozes — disappears for 3 minutes
         engine.process_snapshot(_ts(1), [])
         changes = engine.process_snapshot(_ts(4), [])
@@ -245,9 +295,12 @@ class TestExitInteriorIntegration:
         assert engine.get_person_state("alice").home is True
 
         # Phone wakes up — no state change (was still home)
-        changes = engine.process_snapshot(_ts(5), [
-            _reading("aa:bb:cc:dd:ee:01", "pingu", -47),
-        ])
+        changes = engine.process_snapshot(
+            _ts(5),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "pingu", -47),
+            ],
+        )
         assert changes == []
 
     def test_leaves_through_exit_node(self):
@@ -255,13 +308,19 @@ class TestExitInteriorIntegration:
         config = _make_config()
         engine = PresenceEngine(config)
 
-        engine.process_snapshot(_ts(0), [
-            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
-        ])
+        engine.process_snapshot(
+            _ts(0),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+            ],
+        )
         # Walk to garden
-        engine.process_snapshot(_ts(1), [
-            _reading("aa:bb:cc:dd:ee:01", "mowgli", -60),
-        ])
+        engine.process_snapshot(
+            _ts(1),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "mowgli", -60),
+            ],
+        )
         # Disappear from garden
         engine.process_snapshot(_ts(2), [])
         # Past departure_timeout (120s)
@@ -271,20 +330,25 @@ class TestExitInteriorIntegration:
 
     def test_no_exit_nodes_uses_departure_timeout(self):
         """Config without exit nodes: all use departure_timeout."""
-        config = Config.from_dict({
-            "mqtt": {"host": "localhost", "port": 1883, "topic_prefix": "test"},
-            "nodes": {
-                "pingu": {"room": "office"},
-                "albert": {"room": "bedroom"},
-            },
-            "departure_timeout": 120,
-            "people": {"alice": {"macs": ["aa:bb:cc:dd:ee:01"]}},
-        })
+        config = Config.from_dict(
+            {
+                "mqtt": {"host": "localhost", "port": 1883, "topic_prefix": "test"},
+                "nodes": {
+                    "pingu": {"room": "office"},
+                    "albert": {"room": "bedroom"},
+                },
+                "departure_timeout": 120,
+                "people": {"alice": {"macs": ["aa:bb:cc:dd:ee:01"]}},
+            }
+        )
         engine = PresenceEngine(config)
 
-        engine.process_snapshot(_ts(0), [
-            _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
-        ])
+        engine.process_snapshot(
+            _ts(0),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "pingu", -45),
+            ],
+        )
         engine.process_snapshot(_ts(1), [])
         # Past 120s — goes away (no exit nodes, so departure_timeout applies)
         changes = engine.process_snapshot(_ts(4), [])

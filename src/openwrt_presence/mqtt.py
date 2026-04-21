@@ -112,12 +112,14 @@ class MqttPublisher:
         )
         self._client.publish(
             f"{self._topic_prefix}/{change.person}/attributes",
-            json.dumps({
-                "event_ts": change.timestamp.isoformat(),
-                "mac": change.mac,
-                "node": change.node,
-                "rssi": change.rssi,
-            }),
+            json.dumps(
+                {
+                    "event_ts": change.timestamp.isoformat(),
+                    "mac": change.mac,
+                    "node": change.node,
+                    "rssi": change.rssi,
+                }
+            ),
             qos=_QOS,
             retain=True,
         )

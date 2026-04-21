@@ -253,9 +253,7 @@ class PresenceEngine:
 
         return PersonState(home=True, room=best_room)
 
-    def _emit_changes(
-        self, person: str, timestamp: datetime
-    ) -> list[StateChange]:
+    def _emit_changes(self, person: str, timestamp: datetime) -> list[StateChange]:
         """Compare computed person state to last published; emit if changed."""
         new_state = self._compute_person_state(person)
         old_state = self._last_person_state.get(

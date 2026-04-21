@@ -15,7 +15,8 @@ def _make_source(
     tracked_macs: set[str] | None = None,
 ) -> ExporterSource:
     return ExporterSource(
-        node_urls=node_urls or {
+        node_urls=node_urls
+        or {
             "pingu": "http://pingu:9100/metrics",
             "albert": "http://albert:9100/metrics",
         },
@@ -65,12 +66,14 @@ class TestMetricsParsing:
         assert readings == []
 
     def test_no_wifi_metrics(self):
-        text = "node_cpu_seconds_total{cpu=\"0\"} 123.45\n"
+        text = 'node_cpu_seconds_total{cpu="0"} 123.45\n'
         readings = ExporterSource._parse_metrics(text, "pingu")
         assert readings == []
 
     def test_handles_float_rssi(self):
-        text = 'wifi_station_signal_dbm{ifname="phy1-ap0",mac="AA:BB:CC:DD:EE:01"} -55.7\n'
+        text = (
+            'wifi_station_signal_dbm{ifname="phy1-ap0",mac="AA:BB:CC:DD:EE:01"} -55.7\n'
+        )
         readings = ExporterSource._parse_metrics(text, "pingu")
         assert readings[0].rssi == -55
 
@@ -158,6 +161,5 @@ class TestNodeHealthTracking:
 
         logs = _log_lines(stream)
         assert not any(
-            l.get("message") in ("node_unreachable", "node_recovered")
-            for l in logs
+            l.get("message") in ("node_unreachable", "node_recovered") for l in logs
         )

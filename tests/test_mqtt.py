@@ -17,7 +17,9 @@ class TestMqttDiscovery:
         publisher.publish_discovery()
 
         calls = mock_client.publish.call_args_list
-        tracker_calls = [c for c in calls if "device_tracker/alice_wifi/config" in str(c)]
+        tracker_calls = [
+            c for c in calls if "device_tracker/alice_wifi/config" in str(c)
+        ]
         assert len(tracker_calls) == 1
         payload = json.loads(tracker_calls[0][0][1])  # positional arg 1
         assert payload["source_type"] == "router"
@@ -53,15 +55,25 @@ class TestMqttDiscovery:
 
         for c in mock_client.publish.call_args_list:
             if "homeassistant/" in str(c):
-                assert c[1].get("retain", False) or (len(c[0]) > 2 and c[0][2]) or c[1].get("retain") is True, \
-                    f"Discovery message not retained: {c}"
+                assert (
+                    c[1].get("retain", False)
+                    or (len(c[0]) > 2 and c[0][2])
+                    or c[1].get("retain") is True
+                ), f"Discovery message not retained: {c}"
 
 
 class TestMqttStatePublish:
     def test_publishes_home_state(self, sample_config):
         mock_client = MagicMock()
         publisher = MqttPublisher(sample_config, mock_client)
-        change = StateChange(person="alice", home=True, room="office", mac="aa:bb:cc:dd:ee:01", node="ap-office", timestamp=_TS)
+        change = StateChange(
+            person="alice",
+            home=True,
+            room="office",
+            mac="aa:bb:cc:dd:ee:01",
+            node="ap-office",
+            timestamp=_TS,
+        )
         publisher.publish_state(change)
 
         calls = mock_client.publish.call_args_list
@@ -72,7 +84,14 @@ class TestMqttStatePublish:
     def test_publishes_room(self, sample_config):
         mock_client = MagicMock()
         publisher = MqttPublisher(sample_config, mock_client)
-        change = StateChange(person="alice", home=True, room="office", mac="aa:bb:cc:dd:ee:01", node="ap-office", timestamp=_TS)
+        change = StateChange(
+            person="alice",
+            home=True,
+            room="office",
+            mac="aa:bb:cc:dd:ee:01",
+            node="ap-office",
+            timestamp=_TS,
+        )
         publisher.publish_state(change)
 
         calls = mock_client.publish.call_args_list
@@ -83,7 +102,14 @@ class TestMqttStatePublish:
     def test_publishes_not_home_state(self, sample_config):
         mock_client = MagicMock()
         publisher = MqttPublisher(sample_config, mock_client)
-        change = StateChange(person="alice", home=False, room=None, mac="aa:bb:cc:dd:ee:01", node="ap-garden", timestamp=_TS)
+        change = StateChange(
+            person="alice",
+            home=False,
+            room=None,
+            mac="aa:bb:cc:dd:ee:01",
+            node="ap-garden",
+            timestamp=_TS,
+        )
         publisher.publish_state(change)
 
         calls = mock_client.publish.call_args_list
@@ -93,7 +119,14 @@ class TestMqttStatePublish:
     def test_publishes_empty_room_when_away(self, sample_config):
         mock_client = MagicMock()
         publisher = MqttPublisher(sample_config, mock_client)
-        change = StateChange(person="alice", home=False, room=None, mac="aa:bb:cc:dd:ee:01", node="ap-garden", timestamp=_TS)
+        change = StateChange(
+            person="alice",
+            home=False,
+            room=None,
+            mac="aa:bb:cc:dd:ee:01",
+            node="ap-garden",
+            timestamp=_TS,
+        )
         publisher.publish_state(change)
 
         calls = mock_client.publish.call_args_list
@@ -103,7 +136,15 @@ class TestMqttStatePublish:
     def test_publishes_attributes_with_timestamp(self, sample_config):
         mock_client = MagicMock()
         publisher = MqttPublisher(sample_config, mock_client)
-        change = StateChange(person="alice", home=True, room="office", mac="aa:bb:cc:dd:ee:01", node="ap-office", timestamp=_TS, rssi=-45)
+        change = StateChange(
+            person="alice",
+            home=True,
+            room="office",
+            mac="aa:bb:cc:dd:ee:01",
+            node="ap-office",
+            timestamp=_TS,
+            rssi=-45,
+        )
         publisher.publish_state(change)
 
         calls = mock_client.publish.call_args_list
@@ -118,11 +159,22 @@ class TestMqttStatePublish:
     def test_state_messages_are_retained(self, sample_config):
         mock_client = MagicMock()
         publisher = MqttPublisher(sample_config, mock_client)
-        change = StateChange(person="alice", home=True, room="office", mac="aa:bb:cc:dd:ee:01", node="ap-office", timestamp=_TS)
+        change = StateChange(
+            person="alice",
+            home=True,
+            room="office",
+            mac="aa:bb:cc:dd:ee:01",
+            node="ap-office",
+            timestamp=_TS,
+        )
         publisher.publish_state(change)
 
         for c in mock_client.publish.call_args_list:
-            assert c[1].get("retain", False) or (len(c[0]) > 2 and c[0][2]) or c[1].get("retain") is True
+            assert (
+                c[1].get("retain", False)
+                or (len(c[0]) > 2 and c[0][2])
+                or c[1].get("retain") is True
+            )
 
 
 class TestMqttLwt:
@@ -170,8 +222,12 @@ class TestMqttQos:
         mock_client = MagicMock()
         publisher = MqttPublisher(sample_config, mock_client)
         change = StateChange(
-            person="alice", home=True, room="office",
-            mac="aa:bb:cc:dd:ee:01", node="ap-office", timestamp=_TS,
+            person="alice",
+            home=True,
+            room="office",
+            mac="aa:bb:cc:dd:ee:01",
+            node="ap-office",
+            timestamp=_TS,
         )
         publisher.publish_state(change)
         qos_values = _all_publish_qos_values(mock_client)
@@ -225,7 +281,8 @@ class TestMqttStateCacheAndReconnect:
         assert publisher.cached_state("alice") == c2
 
     def test_on_connected_with_empty_cache_publishes_discovery_and_online(
-        self, sample_config,
+        self,
+        sample_config,
     ):
         mock_client = MagicMock()
         publisher = MqttPublisher(sample_config, mock_client)
@@ -235,8 +292,9 @@ class TestMqttStateCacheAndReconnect:
         assert sum(1 for t in topics if t.startswith("homeassistant/")) == 4
         assert any(t.endswith("/status") for t in topics)
         # no state topics yet (cache empty)
-        assert not any("/state" in t or "/room" in t or "/attributes" in t
-                       for t in topics)
+        assert not any(
+            "/state" in t or "/room" in t or "/attributes" in t for t in topics
+        )
 
     def test_on_connected_replays_cached_state(self, sample_config):
         mock_client = MagicMock()
@@ -265,7 +323,8 @@ class TestMqttStateCacheAndReconnect:
 
         lines = [line for line in stream.getvalue().splitlines() if line]
         state_change_lines = [
-            json.loads(line) for line in lines
+            json.loads(line)
+            for line in lines
             if json.loads(line).get("message") == "state_change"
         ]
         assert len(state_change_lines) == 1
@@ -287,8 +346,9 @@ class TestMqttStateCacheAndReconnect:
             if not line:
                 continue
             data = json.loads(line)
-            assert data.get("message") != "state_change", \
+            assert data.get("message") != "state_change", (
                 f"on_connected must not emit state_change: {data}"
+            )
 
     def test_on_connected_idempotent(self, sample_config):
         """Two calls to on_connected must issue the same publishes each time."""

@@ -12,7 +12,9 @@ if TYPE_CHECKING:
 
 
 def _uppercase_level(
-    logger: Any, method_name: str, event_dict: dict[str, Any],
+    logger: Any,
+    method_name: str,
+    event_dict: dict[str, Any],
 ) -> dict[str, Any]:
     if "level" in event_dict:
         event_dict["level"] = event_dict["level"].upper()

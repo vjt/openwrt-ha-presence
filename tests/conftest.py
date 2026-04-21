@@ -5,21 +5,23 @@ from openwrt_presence.config import Config
 
 @pytest.fixture
 def sample_config() -> Config:
-    return Config.from_dict({
-        "mqtt": {
-            "host": "localhost",
-            "port": 1883,
-            "topic_prefix": "openwrt-presence",
-        },
-        "nodes": {
-            "albert": {"room": "bedroom"},
-            "pingu": {"room": "office"},
-            "mowgli": {"room": "garden", "exit": True},
-        },
-        "departure_timeout": 120,
-        "away_timeout": 600,
-        "people": {
-            "alice": {"macs": ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"]},
-            "bob": {"macs": ["aa:bb:cc:dd:ee:03"]},
-        },
-    })
+    return Config.from_dict(
+        {
+            "mqtt": {
+                "host": "localhost",
+                "port": 1883,
+                "topic_prefix": "openwrt-presence",
+            },
+            "nodes": {
+                "albert": {"room": "bedroom"},
+                "pingu": {"room": "office"},
+                "mowgli": {"room": "garden", "exit": True},
+            },
+            "departure_timeout": 120,
+            "away_timeout": 600,
+            "people": {
+                "alice": {"macs": ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"]},
+                "bob": {"macs": ["aa:bb:cc:dd:ee:03"]},
+            },
+        }
+    )

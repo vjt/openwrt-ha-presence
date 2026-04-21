@@ -85,7 +85,10 @@ class ExporterSource:
         return self._filter_tracked(readings)
 
     async def _scrape_ap(
-        self, session: aiohttp.ClientSession, node: str, url: str,
+        self,
+        session: aiohttp.ClientSession,
+        node: str,
+        url: str,
     ) -> list[StationReading]:
         """Scrape a single AP and parse its metrics."""
         async with session.get(url) as response:

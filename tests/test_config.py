@@ -50,19 +50,25 @@ class TestConfigLoading:
         assert sample_config.nodes["pingu"].url is None
 
     def test_node_url_override(self):
-        cfg = Config.from_dict(_base_config(nodes={
-            "ap1": {"room": "room1", "url": "http://192.168.1.10:9100/metrics"},
-        }))
+        cfg = Config.from_dict(
+            _base_config(
+                nodes={
+                    "ap1": {"room": "room1", "url": "http://192.168.1.10:9100/metrics"},
+                }
+            )
+        )
         assert cfg.nodes["ap1"].url == "http://192.168.1.10:9100/metrics"
 
     def test_node_urls_property(self):
-        cfg = Config.from_dict(_base_config(
-            nodes={
-                "ap1": {"room": "room1"},
-                "ap2": {"room": "room2", "url": "http://10.0.0.5:9200/metrics"},
-            },
-            exporter_port=9100,
-        ))
+        cfg = Config.from_dict(
+            _base_config(
+                nodes={
+                    "ap1": {"room": "room1"},
+                    "ap2": {"room": "room2", "url": "http://10.0.0.5:9200/metrics"},
+                },
+                exporter_port=9100,
+            )
+        )
         urls = cfg.node_urls
         assert urls["ap1"] == "http://ap1:9100/metrics"
         assert urls["ap2"] == "http://10.0.0.5:9200/metrics"
@@ -71,10 +77,14 @@ class TestConfigLoading:
 class TestConfigValidation:
     def test_rejects_duplicate_mac_across_people(self):
         with pytest.raises(ConfigError, match="duplicate"):
-            Config.from_dict(_base_config(people={
-                "alice": {"macs": ["aa:bb:cc:dd:ee:01"]},
-                "bob": {"macs": ["aa:bb:cc:dd:ee:01"]},
-            }))
+            Config.from_dict(
+                _base_config(
+                    people={
+                        "alice": {"macs": ["aa:bb:cc:dd:ee:01"]},
+                        "bob": {"macs": ["aa:bb:cc:dd:ee:01"]},
+                    }
+                )
+            )
 
     def test_rejects_missing_people(self):
         with pytest.raises(ConfigError):
@@ -91,9 +101,13 @@ class TestExitNodes:
         assert cfg.nodes["ap1"].exit is False
 
     def test_node_exit_true(self):
-        cfg = Config.from_dict(_base_config(nodes={
-            "ap1": {"room": "garden", "exit": True},
-        }))
+        cfg = Config.from_dict(
+            _base_config(
+                nodes={
+                    "ap1": {"room": "garden", "exit": True},
+                }
+            )
+        )
         assert cfg.nodes["ap1"].exit is True
 
     def test_away_timeout_default(self):
@@ -109,10 +123,14 @@ class TestExitNodes:
         assert cfg.has_exit_nodes is False
 
     def test_has_exit_nodes_true(self):
-        cfg = Config.from_dict(_base_config(nodes={
-            "ap1": {"room": "garden", "exit": True},
-            "ap2": {"room": "office"},
-        }))
+        cfg = Config.from_dict(
+            _base_config(
+                nodes={
+                    "ap1": {"room": "garden", "exit": True},
+                    "ap2": {"room": "office"},
+                }
+            )
+        )
         assert cfg.has_exit_nodes is True
 
     def test_timeout_for_node_no_exit_nodes(self):
@@ -120,10 +138,14 @@ class TestExitNodes:
         assert cfg.timeout_for_node("ap1") == 120  # departure_timeout for all
 
     def test_timeout_for_node_with_exit_nodes(self):
-        cfg = Config.from_dict(_base_config(nodes={
-            "gate": {"room": "garden", "exit": True},
-            "office": {"room": "office"},
-        }))
-        assert cfg.timeout_for_node("gate") == 120       # departure_timeout
-        assert cfg.timeout_for_node("office") == 64800    # away_timeout
-        assert cfg.timeout_for_node("unknown") == 64800   # unknown → interior default
+        cfg = Config.from_dict(
+            _base_config(
+                nodes={
+                    "gate": {"room": "garden", "exit": True},
+                    "office": {"room": "office"},
+                }
+            )
+        )
+        assert cfg.timeout_for_node("gate") == 120  # departure_timeout
+        assert cfg.timeout_for_node("office") == 64800  # away_timeout
+        assert cfg.timeout_for_node("unknown") == 64800  # unknown → interior default

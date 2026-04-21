@@ -35,13 +35,20 @@ async def _run() -> None:
     engine = PresenceEngine(config)
 
     def _on_connect(
-        client: mqtt.Client, userdata, flags, reason_code, properties=None,
+        client: mqtt.Client,
+        userdata,
+        flags,
+        reason_code,
+        properties=None,
     ) -> None:
         logger.info("mqtt_connected", reason_code=str(reason_code))
         publisher.on_connected()
 
     def _on_disconnect(
-        client: mqtt.Client, userdata, disconnect_flags, reason_code,
+        client: mqtt.Client,
+        userdata,
+        disconnect_flags,
+        reason_code,
         properties=None,
     ) -> None:
         logger.warning("mqtt_disconnected", reason_code=str(reason_code))
@@ -55,9 +62,7 @@ async def _run() -> None:
     source = ExporterSource(
         node_urls=config.node_urls,
         tracked_macs={
-            mac
-            for person_cfg in config.people.values()
-            for mac in person_cfg.macs
+            mac for person_cfg in config.people.values() for mac in person_cfg.macs
         },
         dns_cache_ttl=config.dns_cache_ttl,
     )
