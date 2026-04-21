@@ -3,8 +3,10 @@ FakeSource replaces ExporterSource. Never fake the engine or config."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
+
+from openwrt_presence.engine import StationReading
 
 
 @dataclass(frozen=True)
@@ -119,3 +121,30 @@ class _FakePublishResult:
 
     def wait_for_publish(self, timeout: float | None = None) -> None:
         return
+
+
+@dataclass
+class FakeSource:
+    """Returns pre-programmed sequences of readings from .query().
+
+    Use .schedule(reading_list, reading_list, ...) to feed multiple
+    poll cycles. Raises the exception if raise_on_next is set."""
+
+    readings_queue: list[list[StationReading]] = field(default_factory=list)
+    raise_on_next: Exception | None = None
+    closed: bool = False
+
+    async def query(self) -> list[StationReading]:
+        if self.raise_on_next is not None:
+            exc = self.raise_on_next
+            self.raise_on_next = None
+            raise exc
+        if not self.readings_queue:
+            return []
+        return self.readings_queue.pop(0)
+
+    async def close(self) -> None:
+        self.closed = True
+
+    def schedule(self, *batches: list[StationReading]) -> None:
+        self.readings_queue.extend(batches)
