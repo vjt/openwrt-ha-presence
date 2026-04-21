@@ -20,6 +20,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🧪 `test_source_exporters.py` rewritten using `aiohttp` test server + dead-port URLs for health tracking (no private-method monkey-patching)
 - 🏷️ Test node names aligned to `ap-*` convention (`ap-garden`/`ap-living`/`ap-bedroom`) — production config untouched
 
+### Fixed (security-critical)
+- 🛡️ **Circuit breaker: all-APs-unreachable (C3).** When every configured AP fails its scrape in the same cycle, `__main__._run` now logs `all_nodes_unreachable` and skips `engine.process_snapshot` for that cycle. Closes the "core switch down arms the alarm on sleeping occupants" class of failure — engine state from the last healthy snapshot is preserved until evidence returns
+- 🧵 **paho thread/asyncio race on reconnect (C2).** `on_connected` used to run on paho's network thread and mutate `publisher._last_state` while the poll loop mutated the same dict — `RuntimeError: dictionary changed size during iteration` waiting to happen. The callback now hops to the asyncio loop via `loop.call_soon_threadsafe`
+- 📜 **Honest audit log (C4).** The old `state_change` event unconditionally claimed delivery even when paho silently dropped the publish. Split into two events: `state_computed` (engine decided, emitted always) and `state_delivered` (all three topic publishes returned `rc == 0`). A `state_computed` without a matching `state_delivered` is the silent-data-loss tripwire. `publish_failed` with return code now logs per dropped topic
+
+### Fixed
+- `on_connect` callback body now wrapped in try/except; paho's internal logger piped through structlog so swallowed exceptions surface (HIGH H7)
+- `asyncio.get_running_loop()` replaces deprecated `asyncio.get_event_loop()` — forward-compatible with Python 3.14 (HIGH H8)
+- Initial `source.query()` failure no longer crashes `_run` before the poll loop starts; logs `initial_query_failed` and continues with empty readings (HIGH H9)
+- `/metrics` scrape calls `response.raise_for_status()` (503/5xx → per-AP exception → node marked unreachable instead of silently empty) and caps response body at 1 MiB against a pathological exporter (MEDIUM M11+M12)
+- `_parse_metrics` now raises `ValueError` on a line starting with `wifi_station_signal_dbm` that fails to parse — silent skipping of garbage hides real exporter bugs; the exception bubbles to the per-AP try/except in `query()` and flags the node unhealthy
+
+### Documented
+- Shutdown ordering in `_run` finally block: `loop_stop()` before `disconnect()` is deliberate — the broker sees a TCP drop and fires our LWT, which is how HA marks entities unavailable on planned shutdowns (HIGH H1)
+
+### Migration notes
+**Audit log schema change:** the `state_change` message is GONE, replaced by `state_computed` (engine produced a change) and `state_delivered` (MQTT accepted the three topics). `openwrt-monitor` handles both; any external log shipper filtering on `message=state_change` must update its filter. The structured fields (`person`, `presence`, `room`, `mac`, `node`, `rssi`, `event_ts`) are unchanged.
+
 ## [0.5.0] — 2026-04-21
 
 ### Added
