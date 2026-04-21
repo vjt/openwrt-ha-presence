@@ -95,7 +95,7 @@ docker compose up -d --build
 sleep 4 && docker container logs eve --tail 20
 ```
 
-Confirm `mqtt_connected` + `poll_loop_started` + a `state_change`
+Confirm `mqtt_connected` + `poll_loop_started` + a `state_computed`
 line per person.  If deferring redeploy, flag in the final report.
 
 ### 7. Final commit and push

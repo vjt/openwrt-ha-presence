@@ -96,7 +96,7 @@ async def _run() -> None:
     # Closes two gaps at once: (a) an already-away person at startup would
     # produce no transition, hence no publish, leaving HA with stale
     # retained state; (b) the audit log would be silent about what we just
-    # told HA.  A startup always emits one state_change per person.
+    # told HA.  A startup always emits one state_computed per person.
     for person in config.people:
         snapshot = engine.get_person_snapshot(person, now)
         publisher.publish_state(snapshot)

@@ -1,101 +1,78 @@
+"""Tests for the audit-log functions."""
+
+from __future__ import annotations
+
 import io
 import json
 from datetime import UTC, datetime
 
 from openwrt_presence.engine import StateChange
-from openwrt_presence.logging import log_state_change, setup_logging
+from openwrt_presence.logging import (
+    log_state_computed,
+    log_state_delivered,
+    setup_logging,
+)
 
-_TS = datetime(2026, 2, 12, 10, 0, 0, tzinfo=UTC)
+
+def _change(person: str = "alice", home: bool = True) -> StateChange:
+    return StateChange(
+        person=person,
+        home=home,
+        room="garden" if home else None,
+        mac="aa:bb:cc:dd:ee:01",
+        node="ap-garden",
+        timestamp=datetime(2026, 4, 21, 12, 0, 0, tzinfo=UTC),
+        rssi=-55 if home else None,
+    )
 
 
-class TestStructuredLogging:
-    def test_logs_home_event_as_json(self):
+def _lines(stream: io.StringIO) -> list[dict]:
+    return [json.loads(line) for line in stream.getvalue().splitlines() if line]
+
+
+class TestLogStateComputed:
+    def test_message_field(self):
         stream = io.StringIO()
         setup_logging(file=stream)
-        change = StateChange(
-            person="alice",
-            home=True,
-            room="kitchen",
-            mac="aa:bb:cc:dd:ee:01",
-            node="ap-kitchen",
-            timestamp=_TS,
-            rssi=-42,
-        )
-        log_state_change(change)
+        log_state_computed(_change())
+        assert _lines(stream)[0]["message"] == "state_computed"
 
-        line = stream.getvalue().strip()
-        data = json.loads(line)
-        assert data["person"] == "alice"
-        assert data["presence"] == "home"
-        assert data["room"] == "kitchen"
-        assert data["rssi"] == -42
-        assert "ts" in data
-        assert data["event_ts"] == _TS.isoformat()
-
-    def test_logs_away_event(self):
+    def test_fields_present(self):
         stream = io.StringIO()
         setup_logging(file=stream)
-        change = StateChange(
-            person="alice",
-            home=False,
-            room=None,
-            mac="aa:bb:cc:dd:ee:01",
-            node="ap-garden",
-            timestamp=_TS,
-        )
-        log_state_change(change)
+        log_state_computed(_change())
+        entry = _lines(stream)[0]
+        assert entry["person"] == "alice"
+        assert entry["presence"] == "home"
+        assert entry["room"] == "garden"
+        assert entry["mac"] == "aa:bb:cc:dd:ee:01"
+        assert entry["node"] == "ap-garden"
+        assert entry["rssi"] == -55
+        assert entry["event_ts"] == "2026-04-21T12:00:00+00:00"
 
-        data = json.loads(stream.getvalue().strip())
-        assert data["presence"] == "away"
-        assert data["room"] is None
-        assert data["node"] == "ap-garden"
-        assert data["event_ts"] == _TS.isoformat()
-
-    def test_includes_timestamp(self):
+    def test_away_presence(self):
         stream = io.StringIO()
         setup_logging(file=stream)
-        change = StateChange(
-            person="bob",
-            home=True,
-            room="office",
-            mac="aa:bb:cc:dd:ee:03",
-            node="ap-office",
-            timestamp=_TS,
-        )
-        log_state_change(change)
+        log_state_computed(_change(home=False))
+        entry = _lines(stream)[0]
+        assert entry["presence"] == "away"
+        assert entry["room"] is None
+        assert entry["rssi"] is None
 
-        data = json.loads(stream.getvalue().strip())
-        assert "ts" in data
-        datetime.fromisoformat(data["ts"])
 
-    def test_message_field_is_state_change(self):
+class TestLogStateDelivered:
+    def test_message_field(self):
         stream = io.StringIO()
         setup_logging(file=stream)
-        change = StateChange(
-            person="bob",
-            home=True,
-            room="office",
-            mac="aa:bb:cc:dd:ee:03",
-            node="ap-office",
-            timestamp=_TS,
-        )
-        log_state_change(change)
+        log_state_delivered(_change())
+        assert _lines(stream)[0]["message"] == "state_delivered"
 
-        data = json.loads(stream.getvalue().strip())
-        assert data["message"] == "state_change"
-
-    def test_level_is_uppercase(self):
+    def test_shares_schema_with_computed(self):
         stream = io.StringIO()
         setup_logging(file=stream)
-        change = StateChange(
-            person="bob",
-            home=True,
-            room="office",
-            mac="aa:bb:cc:dd:ee:03",
-            node="ap-office",
-            timestamp=_TS,
-        )
-        log_state_change(change)
-
-        data = json.loads(stream.getvalue().strip())
-        assert data["level"] == "INFO"
+        log_state_computed(_change())
+        log_state_delivered(_change())
+        lines = _lines(stream)
+        assert lines[0]["person"] == lines[1]["person"]
+        assert lines[0]["presence"] == lines[1]["presence"]
+        assert lines[0]["event_ts"] == lines[1]["event_ts"]

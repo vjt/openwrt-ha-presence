@@ -158,11 +158,12 @@ def _change(person: str, home: bool, room: str | None) -> StateChange:
 
 
 class TestAudit:
-    """publish_state is the single gate that emits MQTT AND writes the
-    audit-log line. on_connected re-publishes cached state but must NOT
-    re-emit state_change audit lines (those transitions already happened)."""
+    """publish_state emits state_computed (engine decided) and
+    state_delivered (MQTT accepted) around _emit_state.  on_connected
+    re-publishes cached state without emitting either audit line — the
+    transitions already happened."""
 
-    def test_publish_state_writes_audit_log_line(self, sample_config):
+    def test_publish_state_writes_audit_log_lines(self, sample_config):
         stream = io.StringIO()
         setup_logging(file=stream)
         client = FakeMqttClient()
@@ -170,14 +171,21 @@ class TestAudit:
         pub.publish_state(_change("alice", True, "office"))
 
         lines = [line for line in stream.getvalue().splitlines() if line]
-        state_change_lines = [
+        computed = [
             json.loads(line)
             for line in lines
-            if json.loads(line).get("message") == "state_change"
+            if json.loads(line).get("message") == "state_computed"
         ]
-        assert len(state_change_lines) == 1
-        assert state_change_lines[0]["person"] == "alice"
-        assert state_change_lines[0]["presence"] == "home"
+        delivered = [
+            json.loads(line)
+            for line in lines
+            if json.loads(line).get("message") == "state_delivered"
+        ]
+        assert len(computed) == 1
+        assert len(delivered) == 1
+        assert computed[0]["person"] == "alice"
+        assert computed[0]["presence"] == "home"
+        assert delivered[0]["person"] == "alice"
 
     def test_on_connected_does_not_relog_cached_state(self, sample_config):
         client = FakeMqttClient()
@@ -192,9 +200,10 @@ class TestAudit:
             if not line:
                 continue
             data = json.loads(line)
-            assert data.get("message") != "state_change", (
-                f"on_connected must not emit state_change: {data}"
-            )
+            assert data.get("message") not in (
+                "state_computed",
+                "state_delivered",
+            ), f"on_connected must not emit audit lines: {data}"
 
     def test_on_connected_idempotent(self, sample_config):
         client = FakeMqttClient()
@@ -274,3 +283,59 @@ class TestPublishFailure:
             if not line:
                 continue
             assert json.loads(line).get("message") != "publish_failed"
+
+
+class TestComputedVsDelivered:
+    """Audit log invariant: state_computed always fires (engine decided),
+    state_delivered only if all 3 publishes returned rc == 0.  A computed
+    without a matching delivered is the silent-data-loss tripwire."""
+
+    def test_rc_zero_emits_both(self, sample_config):
+        stream = io.StringIO()
+        setup_logging(file=stream)
+        client = FakeMqttClient()
+        pub = MqttPublisher(sample_config, client)
+        pub.publish_state(
+            StateChange(
+                person="alice",
+                home=True,
+                room="garden",
+                mac="aa:bb:cc:dd:ee:01",
+                node="ap-garden",
+                timestamp=datetime(2026, 4, 21, tzinfo=UTC),
+                rssi=-55,
+            )
+        )
+        msgs = [
+            json.loads(line).get("message")
+            for line in stream.getvalue().splitlines()
+            if line
+        ]
+        assert "state_computed" in msgs
+        assert "state_delivered" in msgs
+
+    def test_rc_nonzero_emits_computed_not_delivered(self, sample_config):
+        stream = io.StringIO()
+        setup_logging(file=stream)
+        client = FakeMqttClient()
+        client.publish_rc = 2
+        pub = MqttPublisher(sample_config, client)
+        pub.publish_state(
+            StateChange(
+                person="alice",
+                home=True,
+                room="garden",
+                mac="aa:bb:cc:dd:ee:01",
+                node="ap-garden",
+                timestamp=datetime(2026, 4, 21, tzinfo=UTC),
+                rssi=-55,
+            )
+        )
+        msgs = [
+            json.loads(line).get("message")
+            for line in stream.getvalue().splitlines()
+            if line
+        ]
+        assert "state_computed" in msgs
+        assert "state_delivered" not in msgs
+        assert "publish_failed" in msgs

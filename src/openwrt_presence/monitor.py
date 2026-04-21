@@ -54,6 +54,14 @@ def _format_state_change(data: dict) -> str:
     return f"{DIM}{event_ts}{RESET}  {bullet} {BOLD}{person:<10}{RESET} {event_str}{room_str}  {detail}"
 
 
+def _format_state_delivered(data: dict) -> str:
+    person = data.get("person", "?")
+    event = data.get("presence", "?")
+    ts = _parse_time(data.get("ts", ""))
+    mark = f"{GREEN}✓{RESET}" if event == "home" else f"{RED}✓{RESET}"
+    return f"{DIM}{ts}{RESET}  {mark} {DIM}{person} {event} delivered{RESET}"
+
+
 def _format_log(data: dict) -> str:
     ts = _parse_time(data.get("ts", ""))
     level = data.get("level", "INFO")
@@ -81,8 +89,11 @@ def main() -> None:
                 print(line)
                 continue
 
-            if data.get("message") == "state_change":
+            msg = data.get("message")
+            if msg == "state_computed":
                 print(_format_state_change(data))
+            elif msg == "state_delivered":
+                print(_format_state_delivered(data))
             else:
                 print(_format_log(data))
     except KeyboardInterrupt:

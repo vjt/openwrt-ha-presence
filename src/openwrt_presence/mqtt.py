@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from openwrt_presence.logging import log_state_change
+from openwrt_presence.logging import log_state_computed, log_state_delivered
 
 if TYPE_CHECKING:
     from openwrt_presence.config import Config
@@ -89,14 +89,19 @@ class MqttPublisher:
     def publish_state(self, change: StateChange) -> None:
         """Publish state, room, and attributes for a person.
 
-        The change is cached so :meth:`on_connected` can replay it after a
-        reconnect.  Also writes the audit log line — this is the single
-        code path for "told HA about a person's state" so callers can
-        never forget one half.
+        Audit log ordering:
+          1. state_computed — ALWAYS (the engine decided this change)
+          2. _emit_state    — returns True iff all 3 publishes had rc == 0
+          3. state_delivered — ONLY if (2) succeeded
+
+        A computed without a matching delivered means silent data loss.
+        The cached StateChange is retained regardless so on_connected
+        can replay it on reconnect.
         """
         self._last_state[change.person] = change
-        self._emit_state(change)
-        log_state_change(change)
+        log_state_computed(change)
+        if self._emit_state(change):
+            log_state_delivered(change)
 
     def _emit_state(self, change: StateChange) -> bool:
         """Publish the 3 topics for a person's state change.

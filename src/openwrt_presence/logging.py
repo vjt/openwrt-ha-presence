@@ -45,15 +45,32 @@ def setup_logging(*, file: IO[str] | None = None) -> None:
     )
 
 
-def log_state_change(change: StateChange) -> None:
-    """Log a presence state change as a structured JSON line."""
-    structlog.get_logger().info(
-        "state_change",
-        person=change.person,
-        presence="home" if change.home else "away",
-        room=change.room,
-        mac=change.mac,
-        node=change.node,
-        rssi=change.rssi,
-        event_ts=change.timestamp.isoformat(),
-    )
+def _state_fields(change: StateChange) -> dict[str, Any]:
+    return {
+        "person": change.person,
+        "presence": "home" if change.home else "away",
+        "room": change.room,
+        "mac": change.mac,
+        "node": change.node,
+        "rssi": change.rssi,
+        "event_ts": change.timestamp.isoformat(),
+    }
+
+
+def log_state_computed(change: StateChange) -> None:
+    """Audit log: the engine decided this state transition.
+
+    Emitted always, regardless of whether the MQTT publish succeeds.
+    Paired with :func:`log_state_delivered` — a computed without a
+    matching delivered within the same log burst means the publish
+    dropped silently.
+    """
+    structlog.get_logger().info("state_computed", **_state_fields(change))
+
+
+def log_state_delivered(change: StateChange) -> None:
+    """Audit log: all three topic publishes accepted by paho (rc == 0).
+
+    Emitted only when :meth:`MqttPublisher._emit_state` returns True.
+    """
+    structlog.get_logger().info("state_delivered", **_state_fields(change))
