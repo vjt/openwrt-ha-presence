@@ -25,8 +25,10 @@ class MqttPublisher:
     All publishes use QoS 1 so messages survive broker hiccups: paho queues
     unacked messages locally and retransmits on reconnect.
 
-    Maintains an in-process cache of the last :class:`StateChange` per
-    person so ``on_connected`` can re-seed the broker after a (re)connection.
+    Holds no per-person state of its own — the engine is the single
+    source of truth (H11).  ``on_connected`` accepts a snapshot list
+    built by the caller via ``engine.get_person_snapshot`` at reconnect
+    time, so there's no second cache to race with the poll loop.
 
     Does NOT wire the LWT in ``__init__`` — the caller must call
     ``client.will_set(publisher.availability_topic, publisher.OFFLINE_PAYLOAD,
@@ -41,7 +43,6 @@ class MqttPublisher:
         self._config = config
         self._client = client
         self._topic_prefix = config.mqtt.topic_prefix
-        self._last_state: dict[PersonName, StateChange] = {}
 
     @property
     def availability_topic(self) -> str:
@@ -97,10 +98,10 @@ class MqttPublisher:
           3. state_delivered — ONLY if (2) succeeded
 
         A computed without a matching delivered means silent data loss.
-        The cached StateChange is retained regardless so on_connected
-        can replay it on reconnect.
+        The publisher keeps no per-person cache (H11) — the engine is
+        the single source of truth and reconnect re-seeds via
+        :meth:`on_connected` with a snapshot list from the caller.
         """
-        self._last_state[change.person] = change
         log_state_computed(change)
         if self._emit_state(change):
             log_state_delivered(change)
@@ -169,19 +170,18 @@ class MqttPublisher:
             retain=True,
         )
 
-    def cached_state(self, person: PersonName) -> StateChange | None:
-        """Return the last :class:`StateChange` emitted for *person*, if any."""
-        return self._last_state.get(person)
+    def on_connected(self, snapshots: list[StateChange]) -> None:
+        """Republish discovery, availability, and the supplied per-person state.
 
-    def on_connected(self) -> None:
-        """Republish discovery, availability, and cached per-person state.
+        Called from the paho ``on_connect`` callback hop (C2).  The caller
+        asks the engine for a fresh snapshot per person and passes the
+        list in — the publisher never caches state itself (H11).
 
-        Call from the paho ``on_connect`` callback.  This is how we recover
-        from broker restarts (including Mosquitto major-version upgrades
-        that may drop retained state): the first successful reconnect
-        re-seeds the broker with current truth.
+        This is how we recover from broker restarts (including Mosquitto
+        major-version upgrades that may drop retained state): the first
+        successful reconnect re-seeds the broker with current truth.
         """
         self.publish_discovery()
         self.publish_online()
-        for change in self._last_state.values():
+        for change in snapshots:
             self._emit_state(change)

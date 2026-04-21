@@ -79,7 +79,7 @@ class TestLwt:
 class TestDiscovery:
     def test_discovery_published_on_connect(self, publisher):
         pub, client = publisher
-        pub.on_connected()
+        pub.on_connected([])
         topics = {m.topic for m in client.published}
         assert "homeassistant/device_tracker/alice_wifi/config" in topics
         assert "homeassistant/device_tracker/bob_wifi/config" in topics
@@ -87,7 +87,7 @@ class TestDiscovery:
 
     def test_discovery_retained_qos1(self, publisher):
         pub, client = publisher
-        pub.on_connected()
+        pub.on_connected([])
         for msg in client.published:
             if "config" in msg.topic:
                 assert msg.retain is True
@@ -123,12 +123,13 @@ class TestStatePublish:
 
 
 class TestReconnectReseed:
-    def test_on_connected_republishes_cached_state(self, publisher):
+    def test_on_connected_republishes_given_snapshots(self, publisher):
         pub, client = publisher
-        pub.publish_state(_home())
+        snapshot = _home()
         client.clear()
 
-        pub.on_connected()
+        pub.on_connected([snapshot])
+
         state_msgs = [
             m for m in client.published if m.topic == "openwrt-presence/alice/state"
         ]
@@ -174,8 +175,8 @@ def _change(person: str, home: bool, room: str | None) -> StateChange:
 class TestAudit:
     """publish_state emits state_computed (engine decided) and
     state_delivered (MQTT accepted) around _emit_state.  on_connected
-    re-publishes cached state without emitting either audit line — the
-    transitions already happened."""
+    re-publishes the supplied snapshots without emitting either audit
+    line — the transitions already happened."""
 
     def test_publish_state_writes_audit_log_lines(self, sample_config):
         stream = io.StringIO()
@@ -201,14 +202,14 @@ class TestAudit:
         assert computed[0]["presence"] == "home"
         assert delivered[0]["person"] == "alice"
 
-    def test_on_connected_does_not_relog_cached_state(self, sample_config):
+    def test_on_connected_does_not_relog_snapshots(self, sample_config):
         client = FakeMqttClient()
         pub = MqttPublisher(sample_config, client)
-        pub.publish_state(_change("alice", True, "office"))
+        snapshot = _change("alice", True, "office")
 
         stream = io.StringIO()
         setup_logging(file=stream)
-        pub.on_connected()
+        pub.on_connected([snapshot])
 
         for line in stream.getvalue().splitlines():
             if not line:
@@ -222,14 +223,14 @@ class TestAudit:
     def test_on_connected_idempotent(self, sample_config):
         client = FakeMqttClient()
         pub = MqttPublisher(sample_config, client)
-        pub.publish_state(_change("alice", True, "office"))
+        snapshots = [_change("alice", True, "office")]
         client.clear()
 
-        pub.on_connected()
+        pub.on_connected(snapshots)
         first_count = len(client.published)
         client.clear()
 
-        pub.on_connected()
+        pub.on_connected(snapshots)
         second_count = len(client.published)
 
         assert first_count == second_count

@@ -65,15 +65,21 @@ async def _run(
 
         def _reseed() -> None:
             try:
-                publisher.on_connected()
+                now = datetime.now(UTC)
+                snapshots = [
+                    engine.get_person_snapshot(person, now) for person in config.people
+                ]
+                publisher.on_connected(snapshots)
             except Exception:
                 logger.exception("on_connected_failed")
 
-        # Order matters: _reseed (discovery + availability + cached
-        # state) must land on the asyncio loop BEFORE connected_event
+        # Order matters: _reseed (discovery + availability + snapshot
+        # republish) must land on the asyncio loop BEFORE connected_event
         # fires, so _run's wait gate only proceeds past a broker that
         # has already seen our discovery packets. FIFO scheduling on
         # call_soon_threadsafe gives us that ordering for free.
+        # The engine is touched inside _reseed (not the paho callback
+        # thread) so reads of _devices race-free with the poll loop.
         loop.call_soon_threadsafe(_reseed)
         loop.call_soon_threadsafe(connected_event.set)
 
