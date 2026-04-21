@@ -40,8 +40,12 @@ class FakeMqttClient:
         self.reconnect_delay: tuple[int, int] | None = None
         self.max_queued: int | None = None
         self.publish_rc: int = 0
+        self.paho_logger: Any = None
 
     # ------------ paho surface ------------
+
+    def enable_logger(self, logger: Any = None) -> None:
+        self.paho_logger = logger
 
     def username_pw_set(self, username: str, password: str | None) -> None:
         self.username = username
@@ -134,6 +138,8 @@ class FakeSource:
     readings_queue: list[list[StationReading]] = field(default_factory=list)
     raise_on_next: Exception | None = None
     closed: bool = False
+    # C3 breaker attribute — production _run reads this to skip the engine.
+    all_nodes_unhealthy: bool = False
 
     async def query(self) -> list[StationReading]:
         if self.raise_on_next is not None:

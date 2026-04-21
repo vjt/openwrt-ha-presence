@@ -20,18 +20,16 @@ from openwrt_presence.sources.exporters import ExporterSource
 logger = structlog.get_logger()
 
 
-async def _run() -> None:
-    config_path = os.environ.get("CONFIG_PATH", "config.yaml")
-    config = Config.from_yaml(config_path)
+async def _run(
+    config: Config,
+    client,  # MqttClient-shaped — FakeMqttClient in tests, paho in prod
+    source,  # Source-shaped — FakeSource in tests, ExporterSource in prod
+) -> None:
+    """Run eve to shutdown with injected broker client and source.
 
-    setup_logging()
-
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-    if config.mqtt.username:
-        client.username_pw_set(config.mqtt.username, config.mqtt.password)
-    client.reconnect_delay_set(min_delay=1, max_delay=60)
-    client.max_queued_messages_set(1000)
-
+    Separated from main() for testability — tests pass FakeMqttClient and
+    FakeSource; production wires real paho + ExporterSource in main().
+    """
     publisher = MqttPublisher(config, client)
     engine = PresenceEngine(config)
 
@@ -42,7 +40,7 @@ async def _run() -> None:
     stop_event = asyncio.Event()
 
     def _on_connect(
-        client: mqtt.Client,
+        client,
         userdata,
         flags,
         reason_code,
@@ -59,7 +57,7 @@ async def _run() -> None:
         loop.call_soon_threadsafe(_reseed)
 
     def _on_disconnect(
-        client: mqtt.Client,
+        client,
         userdata,
         disconnect_flags,
         reason_code,
@@ -74,19 +72,6 @@ async def _run() -> None:
 
     client.connect_async(config.mqtt.host, config.mqtt.port)
     client.loop_start()
-
-    source = ExporterSource(
-        node_urls=config.node_urls,
-        tracked_macs=config.tracked_macs,
-        dns_cache_ttl=config.dns_cache_ttl,
-    )
-
-    def _signal_handler() -> None:
-        logger.info("shutdown_signal")
-        stop_event.set()
-
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, _signal_handler)
 
     logger.info("initial_query")
     try:
@@ -147,8 +132,44 @@ async def _run() -> None:
 
 
 def main() -> None:
+    config_path = os.environ.get("CONFIG_PATH", "config.yaml")
+    config = Config.from_yaml(config_path)
+    setup_logging()
+
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    if config.mqtt.username:
+        client.username_pw_set(config.mqtt.username, config.mqtt.password)
+    client.reconnect_delay_set(min_delay=1, max_delay=60)
+    client.max_queued_messages_set(1000)
+
+    source = ExporterSource(
+        node_urls=config.node_urls,
+        tracked_macs=config.tracked_macs,
+        dns_cache_ttl=config.dns_cache_ttl,
+    )
+
+    async def _entry() -> None:
+        loop = asyncio.get_running_loop()
+        # Signal handlers live here, not in _run — keeping signal.add_signal_handler
+        # inside _run leaks process-wide handlers into pytest's event loop and
+        # breaks test isolation. Tests cancel the _run task directly; production
+        # routes SIGTERM/SIGINT to the same task.cancel() path.
+        run_task = asyncio.create_task(_run(config, client, source))
+
+        def _shutdown() -> None:
+            logger.info("shutdown_signal")
+            run_task.cancel()
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, _shutdown)
+
+        try:
+            await run_task
+        except asyncio.CancelledError:
+            pass
+
     try:
-        asyncio.run(_run())
+        asyncio.run(_entry())
     except KeyboardInterrupt:
         pass
 
