@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🧪 **FakeMqttClient + FakeSource + PublishedMsg** in `tests/fakes.py` — test doubles asserting on concrete outcomes, not mock-call string scans
 - 🔒 **Wire-format golden fixture** (`tests/wire_format_golden.json` + `tests/test_wire_format.py`) — locks MQTT byte shape against accidental regression through the hardening rewrite
 - 🧩 Expanded `sample_config` fixture (3 nodes, 2 people, 3 MACs) via direct `Config(...)` constructor + `ts` timestamp helper — single source for integration tests
+- 📐 `Source` protocol in `sources/base.py` — `ExporterSource` and `FakeSource` both satisfy it structurally; `__main__._run(config, client, source: Source)` types the boundary (CRITICAL C5)
+- 🧪 Full end-to-end test suite for `__main__._run` via `FakeMqttClient` + `FakeSource` — replaces Session-1 source-inspection guards with real behavioral coverage (connect wiring, LWT ordering, startup gate, graceful shutdown) (CRITICAL C7)
 
 ### Changed
 - 🧪 `test_mqtt.py` rewritten asserting on `PublishedMsg` outcomes (audit-log + reconnect-no-relog + idempotency coverage preserved)
@@ -22,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🧬 **`StateChange` is now a discriminated union `HomeState | AwayState`** (C1). `HomeState` carries non-optional `room`/`mac`/`node`/`rssi`; `AwayState` carries optional `last_mac`/`last_node` (both `None` for never-seen persons). Consumers pattern-match on the variant — unrepresentable states (away with RSSI, home without room) are no longer expressible. Audit log schema: `state_computed`/`state_delivered` lines for *never-seen* persons now emit `"mac": null, "node": null, "rssi": null` (previously `""`/`""`/`null`). Active-home and once-seen-now-away entries are byte-identical
 - 🧊 **`Config` is now a frozen dataclass** (H4). Mutating fields post-construction raises `dataclasses.FrozenInstanceError`. The internal `_mac_lookup` field stays private, `repr=False`, and is now also `compare=False` (public fields uniquely identify a config)
 - 🎯 **New `Config.tracked_macs` property** returns `frozenset[Mac]` (M2). `__main__._run` passes `config.tracked_macs` to `ExporterSource` instead of reflattening `config.people` inline — single owner of the lookup set. `ExporterSource` now accepts `AbstractSet[Mac]` and stores `frozenset[Mac]` internally, making the defensive copy immutable
+- 🔌 **`_run` accepts injected client + source.** `__main__.main` wires real paho + `ExporterSource`; tests wire `FakeMqttClient` + `FakeSource`. Enables a full end-to-end test suite for the poll loop (CRITICAL C7)
+- 🚪 **LWT set in `main()`, not in publisher constructor.** `will_set` must precede `connect_async` (paho sends the will in CONNECT); wiring it at the call site makes the ordering discoverable and testable (HIGH H1)
+- 📜 **`audit.py` owns `log_state_computed` / `log_state_delivered`.** `logging.py` is purely the structlog setup boundary — audit calls import from `openwrt_presence.audit` (HIGH H2)
+- 🌱 **Seed state after broker connect.** Startup now waits for `on_connect` up to 10s before publishing retained state; `_reseed` runs on the asyncio loop before the wait gate releases. Closes the HA flap where a reconnect could land retained state on a broker that hadn't yet received discovery (HIGH H6)
+- 🧠 **Single source of truth for per-person state — engine, not publisher.** `MqttPublisher._last_state` cache deleted; `_on_connect._reseed` builds snapshots from `engine.get_person_snapshot(person, now)`. Eliminates a race-prone duplicate that the paho thread and poll loop could both mutate (HIGH H11)
+- ⚙️ **Config defaults centralized** as `Final[int]` module constants (`DEFAULT_AWAY_TIMEOUT_SEC`, `DEFAULT_POLL_INTERVAL_SEC`, `DEFAULT_EXPORTER_PORT`, `DEFAULT_DNS_CACHE_TTL_SEC`). Dataclass field defaults and `from_dict` fallbacks reference the same constants — no more two-places-to-change drift. `departure_timeout` deliberately has no default (alarm-path safety — must be explicit) (HIGH H13)
 
 ### Fixed (security-critical)
 - 🛡️ **Circuit breaker: all-APs-unreachable (C3).** When every configured AP fails its scrape in the same cycle, `__main__._run` now logs `all_nodes_unreachable` and skips `engine.process_snapshot` for that cycle. Closes the "core switch down arms the alarm on sleeping occupants" class of failure — engine state from the last healthy snapshot is preserved until evidence returns
@@ -35,8 +43,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/metrics` scrape calls `response.raise_for_status()` (503/5xx → per-AP exception → node marked unreachable instead of silently empty) and caps response body at 1 MiB against a pathological exporter (MEDIUM M11+M12)
 - `_parse_metrics` now raises `ValueError` on a line starting with `wifi_station_signal_dbm` that fails to parse — silent skipping of garbage hides real exporter bugs; the exception bubbles to the per-AP try/except in `query()` and flags the node unhealthy
 
+### Removed
+- `engine.tick()` — `process_snapshot` has always owned expiry via `_expire_devices`; `tick` was dead code in production, kept only for two tests. The tests now cover the expiry path through `process_snapshot` directly (MEDIUM M3)
+- `_compute_person_state` defensive "unknown person" branch — the method is now precondition-asserted (`assert name in self._config.people`). Callers iterate `config.people` exclusively; the branch was unreachable (MEDIUM M7)
+
 ### Documented
 - Shutdown ordering in `_run` finally block: `loop_stop()` before `disconnect()` is deliberate — the broker sees a TCP drop and fires our LWT, which is how HA marks entities unavailable on planned shutdowns (HIGH H1)
+- 🔐 **"This is security software" framing** promoted to top of `CLAUDE.md` — fail-secure, crash loud, audit trail non-optional, no smart, state the contract explicitly
+- 🧾 **Deliberate non-decisions section** in `CLAUDE.md` — Publisher protocol (H10) and runtime config reload (H14) are *intentionally* not built; monitor.py stringly-typed CLI coupling (A1:A7) is accepted complexity. Prevents future drift toward accidental speculative generality
 
 ### Migration notes
 **Audit log schema change:** the `state_change` message is GONE, replaced by `state_computed` (engine produced a change) and `state_delivered` (MQTT accepted the three topics). `openwrt-monitor` handles both; any external log shipper filtering on `message=state_change` must update its filter. The structured fields (`person`, `presence`, `room`, `mac`, `node`, `rssi`, `event_ts`) are unchanged.
