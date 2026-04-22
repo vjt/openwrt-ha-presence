@@ -53,7 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `on_connect` callback body now wrapped in try/except; paho's internal logger piped through structlog so swallowed exceptions surface (HIGH H7)
 - `asyncio.get_running_loop()` replaces deprecated `asyncio.get_event_loop()` — forward-compatible with Python 3.14 (HIGH H8)
 - Initial `source.query()` failure no longer crashes `_run` before the poll loop starts; logs `initial_query_failed` and continues with empty readings (HIGH H9)
-- `/metrics` scrape calls `response.raise_for_status()` (503/5xx → per-AP exception → node marked unreachable instead of silently empty) and caps response body at 1 MiB against a pathological exporter (MEDIUM M11+M12)
+- `/metrics` scrape calls `response.raise_for_status()` (503/5xx → per-AP exception → node marked unreachable instead of silently empty) (MEDIUM M12)
+- 🚨 **Scrape body truncation (regression fix).** `response.content.read(1<<20)` introduced during M11 was not "read up to 1 MiB or EOF" — aiohttp's `StreamReader.read(n)` is single-chunk, so every wifi metric past the first TCP chunk (~2 KB) was silently dropped.  With `prometheus-node-exporter-lua` emitting `node_*` metrics first and `wifi_station_signal_dbm` later in the body, all scrapes returned 0 readings → engine stuck in startup-seeded AWAY → alarm-path blind.  Fix uses `response.text()` (reads until EOF, bounded by the existing 5s `ClientTimeout`).  M11 body cap dropped as YAGNI on a trusted LAN — the timeout already bounds a pathological exporter
 - `_parse_metrics` now raises `ValueError` on a line starting with `wifi_station_signal_dbm` that fails to parse — silent skipping of garbage hides real exporter bugs; the exception bubbles to the per-AP try/except in `query()` and flags the node unhealthy
 
 ### Removed

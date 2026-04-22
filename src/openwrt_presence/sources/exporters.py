@@ -99,11 +99,19 @@ class ExporterSource:
         node: NodeName,
         url: str,
     ) -> list[StationReading]:
-        """Scrape a single AP and parse its metrics."""
+        """Scrape a single AP and parse its metrics.
+
+        Uses ``response.text()`` which reads until EOF — a prior attempt
+        with ``response.content.read(1<<20)`` truncated at the first TCP
+        chunk (StreamReader.read(n) is single-chunk on aiohttp, not "read
+        until n bytes or EOF"), silently dropping every wifi metric past
+        byte ~2000 on real APs.  The 5s ``ClientTimeout`` in the session
+        already bounds the scrape against a pathological exporter — no
+        additional body cap is needed on a trusted LAN.
+        """
         async with session.get(url) as response:
             response.raise_for_status()
-            body = await response.content.read(1 << 20)
-            text = body.decode("utf-8", errors="replace")
+            text = await response.text()
         return self._parse_metrics(text, node)
 
     @staticmethod

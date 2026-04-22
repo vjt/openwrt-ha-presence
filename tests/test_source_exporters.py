@@ -308,6 +308,55 @@ class TestNodeHealthTracking:
         assert initial[0]["healthy"] is False
 
 
+class TestLargeChunkedBody:
+    """Regression: ``response.content.read(n)`` is single-chunk on aiohttp —
+    a prior implementation using ``read(1<<20)`` returned only the first
+    buffered chunk and silently dropped everything after, causing 0
+    readings from real APs whose ``wifi_station_signal_dbm`` lines live
+    past the first chunk (prometheus-node-exporter-lua emits ``node_*``
+    metrics first).  The fix is ``await response.text()`` which reads
+    until EOF.
+    """
+
+    async def test_reads_full_body_when_metrics_past_first_chunk(
+        self,
+        aiohttp_server,
+    ):
+        async def _handler(request: web.Request) -> web.StreamResponse:
+            resp = web.StreamResponse()
+            resp.content_type = "text/plain"
+            await resp.prepare(request)
+            # Padding that mimics prometheus-node-exporter-lua's ordering:
+            # node_* metrics first, wifi metrics later in the body.
+            filler = b'node_filler{x="y"} 42\n' * 4000  # ~88 KiB
+            await resp.write(filler)
+            await resp.write(
+                b'wifi_station_signal_dbm{ifname="phy1-ap0",'
+                b'mac="AA:BB:CC:DD:EE:01"} -55\n',
+            )
+            await resp.write_eof()
+            return resp
+
+        app = web.Application()
+        app.router.add_get("/metrics", _handler)
+        server = await aiohttp_server(app)
+        url = f"http://{server.host}:{server.port}/metrics"
+
+        source = ExporterSource(
+            node_urls={NodeName("ap-far"): url},
+            tracked_macs={Mac("aa:bb:cc:dd:ee:01")},
+            dns_cache_ttl=60,
+        )
+        try:
+            readings = await source.query()
+        finally:
+            await source.close()
+
+        assert len(readings) == 1
+        assert readings[0].mac == "aa:bb:cc:dd:ee:01"
+        assert readings[0].rssi == -55
+
+
 class TestMalformedMetrics:
     """A malformed metric line from an AP is a real bug, not noise — it must
     fail the scrape and flag the node unhealthy. See M11/M12 + ha-verisure rule."""
