@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-04-22
+
 ### Added
 - 🧰 **Pyright strict** + **ruff** + **pre-commit** + **GitHub Actions CI** — tooling floor for the hardening rewrite
 - 📜 `scripts/check.sh` — single-command green gate (ruff + pyright + pytest). Inherited from ha-verisure
@@ -164,7 +166,8 @@ Optional. With no `exit: true` markers, every node keeps using `departure_timeou
 - 🧪 Unit tests and integration replay tests
 - 📖 README + MIT license
 
-[Unreleased]: https://github.com/vjt/openwrt-ha-presence/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/vjt/openwrt-ha-presence/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/vjt/openwrt-ha-presence/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/vjt/openwrt-ha-presence/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/vjt/openwrt-ha-presence/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/vjt/openwrt-ha-presence/compare/v0.2.0...v0.3.0
