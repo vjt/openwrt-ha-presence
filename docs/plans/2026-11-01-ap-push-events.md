@@ -33,8 +33,9 @@ roams* immediate.
   AP still lists the station until its inactivity timer fires), and would
   undo the event within milliseconds. After the hold, the existing
   best-RSSI rule applies again.
-- **Tracked and untracked MACs both get 202** (amended: the first draft said
-  4xx for unknown MACs here and 202 in Tests). Rationale: the AP pushes every
+- **Tracked and untracked MACs both get 204** (amended: the first draft said
+  4xx for unknown MACs here and 202 in Tests). 204, not 202: `uclient-fetch`
+  exits 8 on 202 (measured), which the AP would log as a failed post. Rationale: the AP pushes every
   station (guests, IoT) because the tracked list lives in eve only; an
   untracked MAC is the normal case, not a client error, and a different
   status would give anyone holding one AP token an oracle for which MACs
@@ -100,7 +101,7 @@ one at a time.
   hold window blocks a stale scrape and the departure; scrape after the
   hold applies best-RSSI; untracked MAC → no change.
 - endpoint: token/node mismatch 403, unknown node 403, missing token 403,
-  untracked MAC 202 + no publish, tracked MAC 202 + publish, malformed 400,
+  untracked MAC 204 + no publish, tracked MAC 204 + publish, malformed 400,
   oversize 413.
 - config: token/port validation.
 - end-to-end on one AP before the other five.

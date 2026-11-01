@@ -4,7 +4,7 @@
 ``{"node": str, "mac": str, "event": "assoc"|"disassoc", "rssi": int|null}``.
 See docs/plans/2026-11-01-ap-push-events.md.
 
-Status codes: 202 accepted (tracked or not — no oracle on which MACs
+Status codes: 204 accepted (tracked or not — no oracle on which MACs
 eve tracks), 400 malformed, 403 unknown node / bad token, 413 oversize.
 """
 
@@ -134,7 +134,7 @@ def make_app(config: Config, on_event: Callable[[ApEvent], None]) -> web.Applica
             rssi=event.rssi,
         )
         on_event(event)
-        return web.Response(status=202)
+        return web.Response(status=204)
 
     app = web.Application(client_max_size=MAX_BODY_BYTES)
     app.router.add_post("/event", _handle)

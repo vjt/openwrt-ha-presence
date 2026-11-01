@@ -255,7 +255,7 @@ async def test_pushed_assoc_publishes_room_at_once(sample_config):
     await asyncio.sleep(0.2)  # seed done, listener up
     client.clear()
 
-    assert await _push(config.event_port, "aa:bb:cc:dd:ee:01") == 202
+    assert await _push(config.event_port, "aa:bb:cc:dd:ee:01") == 204
     rooms = [
         m.payload for m in client.published if m.topic == "openwrt-presence/alice/room"
     ]
@@ -277,7 +277,7 @@ async def test_pushed_untracked_mac_publishes_nothing(sample_config):
     await asyncio.sleep(0.2)
     client.clear()
 
-    assert await _push(config.event_port, "ff:ff:ff:ff:ff:ff") == 202
+    assert await _push(config.event_port, "ff:ff:ff:ff:ff:ff") == 204
     assert client.published == []
 
     task.cancel()

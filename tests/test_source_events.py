@@ -71,7 +71,7 @@ def _auth(token=TOKEN_BED):
 async def test_tracked_assoc_accepted(aiohttp_server, push_config):
     client, received = await _start(aiohttp_server, push_config)
     resp = await client.post("/event", data=_body(), headers=_auth())
-    assert resp.status == 202
+    assert resp.status == 204
     assert received == [
         ApEvent(
             node=NodeName("ap-bedroom"),
@@ -87,7 +87,7 @@ async def test_untracked_mac_accepted_same_status(aiohttp_server, push_config):
     resp = await client.post(
         "/event", data=_body(mac="ff:ff:ff:ff:ff:ff"), headers=_auth()
     )
-    assert resp.status == 202
+    assert resp.status == 204
     # Forwarded: the engine, not the endpoint, decides untracked = no-op.
     assert [e.mac for e in received] == ["ff:ff:ff:ff:ff:ff"]
 
@@ -97,7 +97,7 @@ async def test_disassoc_null_rssi(aiohttp_server, push_config):
     resp = await client.post(
         "/event", data=_body(event="disassoc", rssi=None), headers=_auth()
     )
-    assert resp.status == 202
+    assert resp.status == 204
     assert received[0].kind is ApEventKind.DISASSOC
     assert received[0].rssi is None
 
@@ -107,7 +107,7 @@ async def test_uppercase_mac_normalized(aiohttp_server, push_config):
     resp = await client.post(
         "/event", data=_body(mac="AA:BB:CC:DD:EE:01"), headers=_auth()
     )
-    assert resp.status == 202
+    assert resp.status == 204
     assert received[0].mac == "aa:bb:cc:dd:ee:01"
 
 
