@@ -1,0 +1,134 @@
+#!/usr/bin/ucode -S
+// eve-push — push hostapd station events to eve (openwrt-presence).
+//
+// hostapd only notifies ubus *subscribers* of its hostapd.<iface> objects
+// (`ubus listen` sees nothing). When usteer is running it sets
+// notify_response, so hostapd waits up to 100 ms for every subscriber's
+// reply to probe/auth/assoc, and a non-zero reply DENIES the client.
+// Hence: the callback always returns 0 at once, and the HTTP POST runs
+// as an async child with a 2 s timeout. eve being down never blocks
+// hostapd.
+//
+// Files: /etc/eve-push.url   e.g. http://192.0.2.10:8099/event
+//        /etc/eve-push.token this AP's token (nodes.<hostname>.token in eve)
+// The node name sent is the AP hostname; it must match eve's nodes key.
+'use strict';
+
+import * as ubus from 'ubus';
+import * as uloop from 'uloop';
+import * as log from 'log';
+import { readfile } from 'fs';
+
+const FETCH = '/bin/uclient-fetch';
+const TIMEOUT_S = '2';
+const MAX_INFLIGHT = 8;
+const SIGNAL_TTL_S = 30;	// assoc request → sta-authorized is well under 1 s
+const HOUSEKEEP_MS = 60000;
+
+function must_read(path) {
+	let s = readfile(path);
+	if (s == null)
+		die(`eve-push: cannot read ${path}`);
+	s = trim(s);
+	if (s == '')
+		die(`eve-push: ${path} is empty`);
+	return s;
+}
+
+const NODE = must_read('/proc/sys/kernel/hostname');
+const URL = must_read('/etc/eve-push.url');
+const TOKEN = must_read('/etc/eve-push.token');
+
+log.openlog('eve-push', log.LOG_PID, log.LOG_DAEMON);
+
+let inflight = 0;
+let signals = {};	// mac → [signal dBm, time()] from the assoc request
+
+function post(mac, event, rssi) {
+	if (inflight >= MAX_INFLIGHT) {
+		log.syslog(log.LOG_WARNING, 'dropped %s %s: %d posts in flight', event, mac, inflight);
+		return;
+	}
+	let body = sprintf('%J', { node: NODE, mac, event, rssi });
+	inflight++;
+	let p = uloop.process(FETCH, [
+		'-q', '-T', TIMEOUT_S, '-O', '/dev/null',
+		'--header=Authorization: Bearer ' + TOKEN,
+		'--header=Content-Type: application/json',
+		'--post-data=' + body,
+		URL
+	], {}, function(code) {
+		inflight--;
+		if (code != 0)
+			log.syslog(log.LOG_WARNING, 'post %s %s failed: exit %d', event, mac, code);
+	});
+	if (!p) {
+		inflight--;
+		log.syslog(log.LOG_ERR, 'cannot spawn %s', FETCH);
+	}
+}
+
+function on_notify(n) {
+	let d = n.data;
+	let mac = d?.address;
+	if (type(mac) != 'string')
+		return 0;
+	if (n.type == 'assoc') {
+		if (type(d.signal) == 'int' && d.signal < 0)
+			signals[mac] = [ d.signal, time() ];
+	} else if (n.type == 'sta-authorized') {
+		let s = signals[mac];
+		delete signals[mac];
+		let rssi = (s && time() - s[1] <= SIGNAL_TTL_S) ? s[0] : null;
+		post(mac, 'assoc', rssi);
+	} else if (n.type == 'disassoc') {
+		post(mac, 'disassoc', null);
+	}
+	return 0;
+}
+
+uloop.init();
+
+let conn = ubus.connect();
+if (!conn)
+	die('eve-push: cannot connect to ubus');
+
+let sub = conn.subscriber(on_notify, function(id) {});
+
+function subscribe(path) {
+	if (!match(path, /^hostapd\..+/))
+		return;
+	if (sub.subscribe(path))
+		log.syslog(log.LOG_INFO, 'subscribed %s', path);
+	else
+		log.syslog(log.LOG_ERR, 'subscribe %s failed: %s', path, conn.error());
+}
+
+// Listener before the initial list, so an iface added in between is not lost.
+// wifi reload re-creates the hostapd.* objects: pick them up as they appear.
+let listener = conn.listener('ubus.object.add', function(ev, msg) {
+	subscribe(msg?.path);
+});
+
+let objects = conn.list();
+if (!objects)
+	die('eve-push: ubus list failed');
+for (let path in objects)
+	subscribe(path);
+
+uloop.interval(HOUSEKEEP_MS, function() {
+	// Dead ubus connection → exit, procd respawns us.
+	if (conn.list() == null) {
+		log.syslog(log.LOG_ERR, 'ubus connection lost, exiting');
+		uloop.end();
+		return;
+	}
+	let now = time();
+	for (let mac, s in signals)
+		if (now - s[1] > SIGNAL_TTL_S)
+			delete signals[mac];
+});
+
+log.syslog(log.LOG_INFO, 'started: node %s → %s', NODE, URL);
+uloop.run();
+exit(1);

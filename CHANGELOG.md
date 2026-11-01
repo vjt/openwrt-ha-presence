@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- ⚡ **AP push events** — optional `POST /event` listener (`event_port`) with per-node bearer tokens (`nodes.<name>.token`). A pushed `assoc` moves the device to that AP's room at once and holds it there for `event_hold` seconds (default 10) against stale scrapes; `disassoc` is log-only, departures stay scrape-driven. Untracked MACs get the same 202 as tracked ones (no oracle). AP-side ucode daemon in `contrib/openwrt/` (ubus subscriber on `hostapd.*`, pushes on `sta-authorized`, async `uclient-fetch` with 2 s timeout). See `docs/plans/2026-11-01-ap-push-events.md`
+
 ## [0.6.0] — 2026-04-22
 
 ### Added

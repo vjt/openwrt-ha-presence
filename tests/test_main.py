@@ -10,12 +10,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
+import socket
 
+import aiohttp
 import pytest
 from typing_extensions import override
 
 from openwrt_presence.__main__ import _run
-from openwrt_presence.domain import Mac, NodeName, StationReading
+from openwrt_presence.config import NodeConfig
+from openwrt_presence.domain import Mac, NodeName, Room, StationReading
 from tests.fakes import FakeMqttClient, FakeSource
 
 
@@ -210,3 +214,80 @@ async def test_run_wires_lwt_before_connect(sample_config):
     assert client.lwt.payload == "offline"
     assert client.lwt.qos == 1
     assert client.lwt.retain is True
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+_BED_TOKEN = "t" * 40
+
+
+def _push_config(sample_config):
+    nodes = dict(sample_config.nodes)
+    nodes[NodeName("ap-bedroom")] = NodeConfig(room=Room("bedroom"), token=_BED_TOKEN)
+    return dataclasses.replace(sample_config, nodes=nodes, event_port=_free_port())
+
+
+async def _push(port: int, mac: str) -> int:
+    body = {"node": "ap-bedroom", "mac": mac, "event": "assoc", "rssi": -60}
+    async with (
+        aiohttp.ClientSession() as session,
+        session.post(
+            f"http://127.0.0.1:{port}/event",
+            json=body,
+            headers={"Authorization": f"Bearer {_BED_TOKEN}"},
+        ) as resp,
+    ):
+        return resp.status
+
+
+@pytest.mark.timeout(5)
+async def test_pushed_assoc_publishes_room_at_once(sample_config):
+    config = _push_config(sample_config)
+    client = FakeMqttClient()
+    source = FakeSource()
+    task = asyncio.create_task(_run(config, client, source))
+    await asyncio.sleep(0.05)
+    client.trigger_connect()
+    await asyncio.sleep(0.2)  # seed done, listener up
+    client.clear()
+
+    assert await _push(config.event_port, "aa:bb:cc:dd:ee:01") == 202
+    rooms = [
+        m.payload for m in client.published if m.topic == "openwrt-presence/alice/room"
+    ]
+    assert rooms == ["bedroom"]
+
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.timeout(5)
+async def test_pushed_untracked_mac_publishes_nothing(sample_config):
+    config = _push_config(sample_config)
+    client = FakeMqttClient()
+    source = FakeSource()
+    task = asyncio.create_task(_run(config, client, source))
+    await asyncio.sleep(0.05)
+    client.trigger_connect()
+    await asyncio.sleep(0.2)
+    client.clear()
+
+    assert await _push(config.event_port, "ff:ff:ff:ff:ff:ff") == 202
+    assert client.published == []
+
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.timeout(5)
+async def test_listener_closed_on_shutdown(sample_config):
+    config = _push_config(sample_config)
+    await _run_briefly(config, FakeMqttClient(), FakeSource())
+    with pytest.raises(aiohttp.ClientConnectorError):
+        await _push(config.event_port, "aa:bb:cc:dd:ee:01")

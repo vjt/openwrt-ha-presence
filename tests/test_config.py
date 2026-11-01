@@ -5,6 +5,7 @@ import pytest
 from openwrt_presence.config import (
     DEFAULT_AWAY_TIMEOUT_SEC,
     DEFAULT_DNS_CACHE_TTL_SEC,
+    DEFAULT_EVENT_HOLD_SEC,
     DEFAULT_EXPORTER_PORT,
     DEFAULT_POLL_INTERVAL_SEC,
     Config,
@@ -211,3 +212,118 @@ class TestConfigImmutability:
             }
         )
         assert sample_config.tracked_macs == expected
+
+
+_TOKEN_A = "a" * 32
+_TOKEN_B = "b" * 32
+
+
+class TestEventConfig:
+    def test_events_disabled_by_default(self):
+        cfg = Config.from_dict(_base_config())
+        assert cfg.event_port is None
+        assert cfg.nodes[NodeName("ap1")].token is None
+
+    def test_event_port_and_token(self):
+        cfg = Config.from_dict(
+            _base_config(
+                event_port=8099,
+                nodes={"ap1": {"room": "r1", "token": _TOKEN_A}},
+            )
+        )
+        assert cfg.event_port == 8099
+        assert cfg.nodes[NodeName("ap1")].token == _TOKEN_A
+        assert cfg.event_hold == DEFAULT_EVENT_HOLD_SEC
+
+    def test_event_hold_custom(self):
+        cfg = Config.from_dict(
+            _base_config(
+                event_port=8099,
+                event_hold=5,
+                nodes={"ap1": {"room": "r1", "token": _TOKEN_A}},
+            )
+        )
+        assert cfg.event_hold == 5
+
+    def test_token_not_in_repr(self):
+        cfg = Config.from_dict(
+            _base_config(
+                event_port=8099,
+                nodes={"ap1": {"room": "r1", "token": _TOKEN_A}},
+            )
+        )
+        assert _TOKEN_A not in repr(cfg)
+
+    def test_short_token_rejected(self):
+        with pytest.raises(ConfigError, match="token"):
+            Config.from_dict(
+                _base_config(
+                    event_port=8099,
+                    nodes={"ap1": {"room": "r1", "token": "short"}},
+                )
+            )
+
+    def test_non_string_token_rejected(self):
+        with pytest.raises(ConfigError, match="token"):
+            Config.from_dict(
+                _base_config(
+                    event_port=8099,
+                    nodes={"ap1": {"room": "r1", "token": 12345}},
+                )
+            )
+
+    def test_duplicate_token_rejected(self):
+        with pytest.raises(ConfigError, match="token"):
+            Config.from_dict(
+                _base_config(
+                    event_port=8099,
+                    nodes={
+                        "ap1": {"room": "r1", "token": _TOKEN_A},
+                        "ap2": {"room": "r2", "token": _TOKEN_A},
+                    },
+                )
+            )
+
+    def test_tokens_without_port_rejected(self):
+        with pytest.raises(ConfigError, match="event_port"):
+            Config.from_dict(
+                _base_config(nodes={"ap1": {"room": "r1", "token": _TOKEN_A}})
+            )
+
+    def test_port_without_tokens_rejected(self):
+        with pytest.raises(ConfigError, match="token"):
+            Config.from_dict(_base_config(event_port=8099))
+
+    @pytest.mark.parametrize("port", [0, 65536, "8099", True])
+    def test_bad_port_rejected(self, port):
+        with pytest.raises(ConfigError, match="event_port"):
+            Config.from_dict(
+                _base_config(
+                    event_port=port,
+                    nodes={"ap1": {"room": "r1", "token": _TOKEN_A}},
+                )
+            )
+
+    @pytest.mark.parametrize("hold", [0, -1, "10", True])
+    def test_bad_event_hold_rejected(self, hold):
+        with pytest.raises(ConfigError, match="event_hold"):
+            Config.from_dict(
+                _base_config(
+                    event_port=8099,
+                    event_hold=hold,
+                    nodes={"ap1": {"room": "r1", "token": _TOKEN_A}},
+                )
+            )
+
+    def test_mixed_nodes_some_without_token(self):
+        cfg = Config.from_dict(
+            _base_config(
+                event_port=8099,
+                nodes={
+                    "ap1": {"room": "r1", "token": _TOKEN_A},
+                    "ap2": {"room": "r2"},
+                    "ap3": {"room": "r3", "token": _TOKEN_B},
+                },
+            )
+        )
+        assert cfg.nodes[NodeName("ap2")].token is None

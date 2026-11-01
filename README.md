@@ -100,6 +100,20 @@ Use the `url` override if an AP doesn't have local DNS or uses a non-standard po
 
 `exporter_port` (default `9100`) is the port used to construct scrape URLs from AP hostnames. Can be overridden per-node with the `url` field.
 
+### ⚡ AP push events (optional)
+
+Scraping alone bounds a room change to one `poll_interval`. With
+`event_port` set, eve also listens for `POST /event` from the APs: a
+station authorizing on an AP moves its owner to that room at once, and
+for `event_hold` seconds (default 10) the scrape cannot undo it. Scraping
+stays the source of truth for departures and for RSSI-based room choice;
+a `disassoc` event is logged and never marks anyone away.
+
+Each pushing AP needs `token` in its `nodes:` entry (≥ 32 chars, unique);
+an AP can only speak for its own node. Nodes without a token stay
+scrape-only, so APs can be migrated one at a time. The AP-side daemon and
+install steps are in [`contrib/openwrt/`](contrib/openwrt/).
+
 ## 🏡 Home Assistant integration
 
 ### Prerequisites

@@ -17,6 +17,8 @@ DEFAULT_AWAY_TIMEOUT_SEC: Final[int] = 64800  # 18h — phone Wi-Fi doze safety 
 DEFAULT_POLL_INTERVAL_SEC: Final[int] = 30  # /metrics scrape cadence
 DEFAULT_EXPORTER_PORT: Final[int] = 9100  # prometheus-node-exporter
 DEFAULT_DNS_CACHE_TTL_SEC: Final[int] = 300  # 5m — resolver reuse
+DEFAULT_EVENT_HOLD_SEC: Final[int] = 10  # scrape can't undo an AP event this soon
+MIN_TOKEN_LEN: Final[int] = 32
 
 
 class ConfigError(Exception):
@@ -28,6 +30,9 @@ class NodeConfig:
     room: Room
     url: str | None = None
     exit: bool = False
+    # Bearer token the AP presents when pushing events. None = this AP
+    # is scrape-only.  Kept out of repr so a logged config never leaks it.
+    token: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -54,6 +59,8 @@ class Config:
     poll_interval: int = DEFAULT_POLL_INTERVAL_SEC
     exporter_port: int = DEFAULT_EXPORTER_PORT
     dns_cache_ttl: int = DEFAULT_DNS_CACHE_TTL_SEC
+    event_port: int | None = None
+    event_hold: int = DEFAULT_EVENT_HOLD_SEC
     _mac_lookup: dict[Mac, PersonName] = field(
         default_factory=lambda: {}, repr=False, compare=False
     )
@@ -121,7 +128,11 @@ class Config:
                 room=Room(ndata["room"]),
                 url=ndata.get("url"),
                 exit=ndata.get("exit", False),
+                token=cls._parse_token(name, ndata.get("token")),
             )
+        tokens = [n.token for n in nodes.values() if n.token is not None]
+        if len(set(tokens)) != len(tokens):
+            raise ConfigError("node tokens must be unique — one per AP")
 
         # --- people ---
         people_raw: dict[str, Any] = data.get("people", {})
@@ -159,6 +170,9 @@ class Config:
         # --- dns_cache_ttl ---
         dns_cache_ttl: int = data.get("dns_cache_ttl", DEFAULT_DNS_CACHE_TTL_SEC)
 
+        # --- AP push events ---
+        event_port, event_hold = cls._parse_events(data, has_tokens=bool(tokens))
+
         return cls(
             mqtt=mqtt,
             nodes=nodes,
@@ -168,8 +182,55 @@ class Config:
             poll_interval=poll_interval,
             exporter_port=exporter_port,
             dns_cache_ttl=dns_cache_ttl,
+            event_port=event_port,
+            event_hold=event_hold,
             _mac_lookup=mac_lookup,
         )
+
+    @staticmethod
+    def _parse_events(
+        data: dict[str, Any], *, has_tokens: bool
+    ) -> tuple[int | None, int]:
+        """Validate ``event_port`` / ``event_hold``; return them.
+
+        Raises :class:`ConfigError` on a bad port or hold, a port with no
+        tokens, or tokens with no port (either way the config is dead).
+        """
+        event_port: int | None = data.get("event_port")
+        if event_port is not None and (
+            type(event_port) is not int or not 1 <= event_port <= 65535
+        ):
+            raise ConfigError(
+                f"event_port must be an int in 1..65535, got {event_port!r}"
+            )
+        if event_port is not None and not has_tokens:
+            raise ConfigError(
+                "event_port is set but no node has a token — no AP could push"
+            )
+        if event_port is None and has_tokens:
+            raise ConfigError(
+                "nodes have a token but event_port is not set — tokens would be dead"
+            )
+        event_hold: int = data.get("event_hold", DEFAULT_EVENT_HOLD_SEC)
+        if type(event_hold) is not int or event_hold <= 0:
+            raise ConfigError(f"event_hold must be a positive int, got {event_hold!r}")
+        return event_port, event_hold
+
+    @staticmethod
+    def _parse_token(node: str, raw: object) -> str | None:
+        """Validate a node's push token; ``None`` means scrape-only.
+
+        Raises :class:`ConfigError` if present but not a string of at
+        least :data:`MIN_TOKEN_LEN` characters.
+        """
+        if raw is None:
+            return None
+        if not isinstance(raw, str) or len(raw) < MIN_TOKEN_LEN:
+            raise ConfigError(
+                f"nodes.{node}.token must be a string of at least "
+                f"{MIN_TOKEN_LEN} chars (e.g. `openssl rand -hex 32`)"
+            )
+        return raw
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> Config:

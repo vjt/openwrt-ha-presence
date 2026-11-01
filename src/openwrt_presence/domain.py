@@ -11,6 +11,7 @@ unrepresentable.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING, Literal, NewType
 
 if TYPE_CHECKING:
@@ -29,6 +30,24 @@ class StationReading:
     mac: Mac  # lowercase, colon-separated
     ap: NodeName  # AP hostname (instance label)
     rssi: int  # signal strength in dBm
+
+
+class ApEventKind(Enum):
+    ASSOC = "assoc"  # sent by the AP on sta-authorized (post 4-way handshake)
+    DISASSOC = "disassoc"
+
+
+@dataclass(frozen=True)
+class ApEvent:
+    """A station event pushed by an AP (see ``sources/events.py``).
+
+    ``rssi`` is ``None`` when the AP had no signal reading for the station.
+    """
+
+    node: NodeName
+    mac: Mac  # lowercase, colon-separated
+    kind: ApEventKind
+    rssi: int | None
 
 
 @dataclass(frozen=True)

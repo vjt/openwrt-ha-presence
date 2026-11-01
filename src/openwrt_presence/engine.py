@@ -6,6 +6,8 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from openwrt_presence.domain import (
+    ApEvent,
+    ApEventKind,
     AwayState,
     HomeState,
     Mac,
@@ -35,6 +37,9 @@ class _DeviceTracker:
     node: NodeName = field(default_factory=lambda: NodeName(""))
     rssi: int = -100
     departure_deadline: datetime | None = None
+    # Set by an AP assoc event: until then, scrapes cannot move the device
+    # off ``node`` nor start its departure (see process_event).
+    hold_until: datetime | None = None
 
 
 class PresenceEngine:
@@ -67,13 +72,13 @@ class PresenceEngine:
         - If DEPARTING and deadline passed → AWAY.
         """
         # Build best-RSSI-per-MAC lookup from readings (tracked MACs only)
+        tracked = [r for r in readings if self._config.mac_to_person(r.mac) is not None]
         visible: dict[Mac, StationReading] = {}
-        for r in readings:
+        for r in tracked:
             mac = r.mac
-            if self._config.mac_to_person(mac) is None:
-                continue
             if mac not in visible or r.rssi > visible[mac].rssi:
                 visible[mac] = StationReading(mac=mac, ap=r.ap, rssi=r.rssi)
+        self._apply_holds(now, tracked, visible)
 
         # Update visible MACs → CONNECTED
         for mac, reading in visible.items():
@@ -120,6 +125,35 @@ class PresenceEngine:
 
         return changes
 
+    def process_event(self, now: datetime, event: ApEvent) -> list[StateChange]:
+        """Apply an AP push event and return person-level changes.
+
+        - ``ASSOC`` for a tracked MAC → CONNECTED on ``event.node``, RSSI
+          from the event (``None`` keeps the last one), departure timer
+          cancelled, and a hold of ``config.event_hold`` seconds during
+          which scrapes cannot move the device off that node nor start
+          its departure: a scrape in flight during the roam still carries
+          the old AP's stale entry and would undo the event at once.
+        - ``DISASSOC`` → no state change. Departures stay scrape-driven;
+          a disassoc during roaming or doze must not mark anyone away.
+        - Untracked MAC → no state change.
+
+        Returns ``[]`` or one :class:`HomeState`. Raises nothing.
+        """
+        if event.kind is ApEventKind.DISASSOC:
+            return []
+        person = self._config.mac_to_person(event.mac)
+        if person is None:
+            return []
+        tracker = self._devices.setdefault(event.mac, _DeviceTracker())
+        tracker.state = DeviceState.CONNECTED
+        tracker.node = event.node
+        if event.rssi is not None:
+            tracker.rssi = event.rssi
+        tracker.departure_deadline = None
+        tracker.hold_until = now + timedelta(seconds=self._config.event_hold)
+        return self._emit_changes(person, now)
+
     def get_person_state(self, name: PersonName) -> PersonState:
         """Return the current aggregated state for a person."""
         return self._compute_person_state(name)
@@ -158,6 +192,27 @@ class PresenceEngine:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _apply_holds(
+        self,
+        now: datetime,
+        tracked: list[StationReading],
+        visible: dict[Mac, StationReading],
+    ) -> None:
+        """Pin held devices to their event node in *visible* (mutated).
+
+        While held, only a reading on the held node may refresh the RSSI;
+        absence from the scrape counts as visible. Expired holds are cleared.
+        """
+        for mac, tracker in self._devices.items():
+            if tracker.hold_until is None:
+                continue
+            if now >= tracker.hold_until:
+                tracker.hold_until = None
+                continue
+            on_node = [r.rssi for r in tracked if r.mac == mac and r.ap == tracker.node]
+            rssi = max(on_node) if on_node else tracker.rssi
+            visible[mac] = StationReading(mac=mac, ap=tracker.node, rssi=rssi)
 
     def _best_representative(
         self, person: PersonName

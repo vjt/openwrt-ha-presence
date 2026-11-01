@@ -13,15 +13,18 @@ from typing import TYPE_CHECKING, cast
 
 import paho.mqtt.client as mqtt
 import structlog
+from aiohttp import web
 from paho.mqtt.enums import CallbackAPIVersion
 
 from openwrt_presence.config import Config
 from openwrt_presence.engine import PresenceEngine
 from openwrt_presence.logging import setup_logging
 from openwrt_presence.mqtt import MqttPublisher
+from openwrt_presence.sources.events import make_app
 from openwrt_presence.sources.exporters import ExporterSource
 
 if TYPE_CHECKING:
+    from openwrt_presence.domain import ApEvent
     from openwrt_presence.mqtt_client import MqttClient
     from openwrt_presence.sources.base import Source
 
@@ -135,6 +138,20 @@ async def _run(  # noqa: PLR0915 -- top-level wiring + poll loop; E2E tests
         snapshot = engine.get_person_snapshot(person, now)
         publisher.publish_state(snapshot)
 
+    # AP push listener starts only after the seed: an event must never
+    # reach the broker ahead of discovery + the startup snapshot.
+    event_runner: web.AppRunner | None = None
+    if config.event_port is not None:
+
+        def _on_event(event: ApEvent) -> None:
+            for change in engine.process_event(datetime.now(UTC), event):
+                publisher.publish_state(change)
+
+        event_runner = web.AppRunner(make_app(config, _on_event), access_log=None)
+        await event_runner.setup()
+        await web.TCPSite(event_runner, port=config.event_port).start()
+        logger.info("event_listener_started", port=config.event_port)
+
     logger.info("poll_loop_started", interval=config.poll_interval)
 
     try:
@@ -172,6 +189,8 @@ async def _run(  # noqa: PLR0915 -- top-level wiring + poll loop; E2E tests
             with contextlib.suppress(OSError):
                 Path("/tmp/eve_alive").touch(exist_ok=True)  # noqa: ASYNC240
     finally:
+        if event_runner is not None:
+            await event_runner.cleanup()
         await source.close()
         # Shutdown ordering is deliberate (H1): loop_stop() halts paho's
         # network thread FIRST, so the subsequent disconnect() cannot send

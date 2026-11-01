@@ -13,6 +13,7 @@ nodes:
     room: office
   ap-bedroom:
     room: bedroom
+    # token: "<openssl rand -hex 32>"   # enables AP push events for this node
     # url: http://192.168.1.50:9100/metrics   # override if no DNS or custom port
   ap-livingroom:
     room: livingroom
@@ -26,6 +27,8 @@ away_timeout: 64800      # seconds (18h) — safety net for interior nodes (phon
 poll_interval: 5         # seconds between AP scrapes
 exporter_port: 9100      # default prometheus-node-exporter-lua port
 dns_cache_ttl: 300       # seconds to cache DNS resolutions (0 to disable)
+# event_port: 8099       # listen for AP push events (POST /event); needs >=1 node token
+# event_hold: 10         # seconds a pushed assoc wins over the scrape
 
 people:
   alice:
