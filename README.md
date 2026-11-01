@@ -112,7 +112,10 @@ a `disassoc` event is logged and never marks anyone away.
 Each pushing AP needs `token` in its `nodes:` entry (≥ 32 chars, unique);
 an AP can only speak for its own node. Nodes without a token stay
 scrape-only, so APs can be migrated one at a time. The AP-side daemon and
-install steps are in [`contrib/openwrt/`](contrib/openwrt/).
+install steps are in [`contrib/openwrt/`](contrib/openwrt/); it needs an
+OpenWrt with ucode (22.03+, verified on 25.12) — older images (e.g. 19.07)
+stay scrape-only. Measured: hostapd association → MQTT state delivered in
+0.1–0.6 s, versus up to one `poll_interval` with scraping alone.
 
 ## 🏡 Home Assistant integration
 

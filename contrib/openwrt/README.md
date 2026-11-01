@@ -6,6 +6,10 @@ next scrape. Needs only what a stock OpenWrt 25.12 image ships: `ucode`,
 `ucode-mod-ubus`, `ucode-mod-uloop`, `ucode-mod-log`, `uclient-fetch`.
 Design and the hostapd/usteer constraints: `docs/plans/2026-11-01-ap-push-events.md`.
 
+Not for pre-ucode images: OpenWrt 19.07 has no ucode, its `ubus` CLI has
+no `subscribe` and its `uclient-fetch` no `--header`. Those APs stay
+scrape-only (no token in eve's config).
+
 Per AP (the hostname must be the `nodes:` key in eve's config):
 
 ```sh

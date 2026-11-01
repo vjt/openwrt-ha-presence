@@ -1,5 +1,17 @@
 # AP push events (hybrid with scraping)
 
+**Status: implemented 2026-11-01** (`2a78d1e`, `57fb39c`), live on the five
+25.12 APs; the 19.07 AP stays scrape-only (no ucode / `ubus subscribe` /
+`uclient-fetch --header`). Measured, UTC, from AP logread + eve log:
+
+| case | hostapd | eve `ap_event` | `state_delivered` | latency |
+|---|---|---|---|---|
+| reassoc after inactivity (bedroom) | associated 23:10:33.705 | 23:10:34.288 | 23:10:34.289 | 0.58 s |
+| FT roam, walking | 23:22:25.664 | — | 23:22:25.756 | 92 ms |
+
+In the FT roam the room changed in HA 2.8 s before the walker's own
+physical marker, i.e. before the scrape-only path could have seen it.
+
 **Goal:** a phone that associates to an AP moves its owner to that room *now*,
 not at the next poll. The event itself carries the data (MAC, AP, RSSI): no
 "kick then scrape".
@@ -107,6 +119,8 @@ one at a time.
 - end-to-end on one AP before the other five.
 
 ## Measured, not assumed
+
+(Results: see the status table at the top.)
 
 Before/after on a phone walking between rooms: assoc line in logread on
 the AP → eve `ap_event` → MQTT state change. Today's bound is the poll

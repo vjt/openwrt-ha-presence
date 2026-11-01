@@ -66,6 +66,10 @@ ExporterSource.query()  →  list[StationReading]
 PresenceEngine.process_snapshot(now, readings)  →  list[StateChange]
          ↓
 MqttPublisher.publish_state(change) → log_state_computed + log_state_delivered
+
+AP eve-push (optional) → POST /event → sources/events.parse_event → ApEvent
+         ↓
+PresenceEngine.process_event(now, event)  →  list[StateChange]  → same publish gate
 ```
 
 - `config.py` — YAML parsed into frozen dataclasses at boundary
@@ -74,6 +78,12 @@ MqttPublisher.publish_state(change) → log_state_computed + log_state_delivered
 - `sources/exporters.py` — parallel HTTP scrape of `/metrics`, regex
   parse of `wifi_station_signal_dbm{mac="..."} <rssi>`, DNS + session
   pooling, health tracking (only logs on transition healthy↔unreachable)
+- `sources/events.py` — aiohttp `POST /event` for AP push events
+  (`event_port`); per-node bearer token, constant-time compare; 204
+  accepted (tracked or not), 400/403/413 rejected and logged. Engine
+  side: `assoc` → CONNECTED + `event_hold` pin against stale scrapes;
+  `disassoc` log-only — departures stay scrape-driven. AP daemon in
+  `contrib/openwrt/`. See `docs/plans/2026-11-01-ap-push-events.md`
 - `mqtt.py` — HA MQTT Discovery + retained state + LWT (`status = offline`)
 - `mqtt_client.py` — structural `MqttClient` Protocol; minimum paho
   surface typed so `_run` + `FakeMqttClient` share one contract
