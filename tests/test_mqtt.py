@@ -21,6 +21,7 @@ from tests.fakes import FakeMqttClient, PublishedMsg
 
 
 def _home(
+    *,
     person: str = "alice",
     room: str = "garden",
     mac: str = "aa:bb:cc:dd:ee:01",

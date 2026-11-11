@@ -17,8 +17,9 @@ class Source(Protocol):
     """A pluggable producer of station readings.
 
     Contract:
-    - ``query()`` returns every currently-visible tracked station,
-      best RSSI per MAC if the same station appears on multiple APs.
+    - ``query()`` returns every currently-visible tracked station
+      reading. The same MAC may come from several APs (a stale entry on
+      the AP it left); the engine picks the one that represents it.
       Per-node failures are isolated — a partial outage returns a
       partial list, never raises. A total outage returns an empty list.
     - ``close()`` is idempotent and releases all I/O resources.

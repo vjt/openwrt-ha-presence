@@ -14,14 +14,32 @@ from openwrt_presence.domain import Mac, NodeName, StationReading
 if TYPE_CHECKING:
     from collections.abc import Set as AbstractSet
 
-_METRIC_PREFIX = "wifi_station_signal_dbm"
-_METRIC_RE = re.compile(
-    r'^wifi_station_signal_dbm\{[^}]*mac="([^"]+)"[^}]*\}\s+(-?\d+(?:\.\d+)?)\s*$',
-)
+_SIGNAL_METRIC = "wifi_station_signal_dbm"
+_INACTIVE_METRIC = "wifi_station_inactive_milliseconds"
+# Groups: the label set, the MAC, the value.
+_LINE_RE = {
+    _SIGNAL_METRIC: re.compile(
+        r'^wifi_station_signal_dbm\{([^}]*mac="([^"]+)"[^}]*)\}'
+        r"\s+(-?\d+(?:\.\d+)?)\s*$",
+    ),
+    _INACTIVE_METRIC: re.compile(
+        r'^wifi_station_inactive_milliseconds\{([^}]*mac="([^"]+)"[^}]*)\}'
+        r"\s+(\d+(?:\.\d+)?)\s*$",
+    ),
+}
+_LABEL_RE = re.compile(r'(\w+)="([^"]*)"')
+
+_Series = tuple[tuple[str, str], ...]
+
+
+def _series(labels: str) -> _Series:
+    """One station on one interface, whatever order the labels come in:
+    the exporter prints them in Lua ``pairs`` order."""
+    return tuple(sorted(_LABEL_RE.findall(labels)))
 
 
 class ExporterSource:
-    """Scrapes /metrics on each AP for wifi_station_signal_dbm."""
+    """Scrapes /metrics on each AP for each station's signal and inactive time."""
 
     def __init__(
         self,
@@ -116,24 +134,49 @@ class ExporterSource:
 
     @staticmethod
     def _parse_metrics(text: str, ap: NodeName) -> list[StationReading]:
-        """Parse Prometheus text exposition format for wifi RSSI metrics.
+        """Parse Prometheus text exposition format into station readings.
 
-        Lines that look like our metric (start with the prefix) but fail to
-        parse raise ValueError. That bubbles up to the per-AP try/except in
+        Each ``wifi_station_signal_dbm`` series is paired with the
+        ``wifi_station_inactive_milliseconds`` series of the same label
+        set; one reading per pair. Returns ``list[StationReading]``.
+
+        Raises ValueError on a line that starts like either metric but
+        fails to parse, on a series printed twice, and on a signal without
+        its inactive time. That bubbles up to the per-AP try/except in
         query() and the node gets marked unhealthy — the operator sees
         node_unreachable and investigates. Silent skipping of garbage from
         an AP hides real bugs.
         """
-        readings: list[StationReading] = []
+        found: dict[tuple[str, _Series], tuple[Mac, int]] = {}
         for line in text.splitlines():
-            if not line.startswith(_METRIC_PREFIX):
+            metric = next((name for name in _LINE_RE if line.startswith(name)), None)
+            if metric is None:
                 continue
-            m = _METRIC_RE.match(line)
+            m = _LINE_RE[metric].match(line)
             if m is None:
                 raise ValueError(f"{ap}: malformed metric line: {line!r}")
-            mac = Mac(m.group(1).lower().replace("-", ":"))
-            rssi = int(float(m.group(2)))
-            readings.append(StationReading(mac=mac, ap=ap, rssi=rssi))
+            labels, mac, value = m.groups()
+            key = (metric, _series(labels))
+            if key in found:
+                raise ValueError(f"{ap}: duplicate series: {line!r}")
+            found[key] = (Mac(mac.lower().replace("-", ":")), int(float(value)))
+
+        readings: list[StationReading] = []
+        for (metric, series), (mac, rssi) in found.items():
+            if metric != _SIGNAL_METRIC:
+                # An inactive time alone is legit: wifi_stations.lua omits
+                # the signal line when the driver reports 0. No reading, as
+                # before the pairing existed.
+                continue
+            inactive_key = (_INACTIVE_METRIC, series)
+            if inactive_key not in found:
+                raise ValueError(
+                    f"{ap}: {mac} has {_SIGNAL_METRIC} but no {_INACTIVE_METRIC}"
+                )
+            _, inactive_ms = found[inactive_key]
+            readings.append(
+                StationReading(mac=mac, ap=ap, rssi=rssi, inactive_ms=inactive_ms)
+            )
         return readings
 
     def _filter_tracked(self, readings: list[StationReading]) -> list[StationReading]:

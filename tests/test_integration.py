@@ -20,8 +20,10 @@ def _ts(minutes: float = 0) -> datetime:
     return datetime(2026, 1, 1, tzinfo=UTC) + timedelta(minutes=minutes)
 
 
-def _reading(mac: str, ap: str, rssi: int) -> StationReading:
-    return StationReading(mac=Mac(mac), ap=NodeName(ap), rssi=rssi)
+def _reading(mac: str, ap: str, rssi: int, inactive_ms: int = 0) -> StationReading:
+    return StationReading(
+        mac=Mac(mac), ap=NodeName(ap), rssi=rssi, inactive_ms=inactive_ms
+    )
 
 
 def _make_config() -> Config:
@@ -134,30 +136,31 @@ class TestArrivalAndRoaming:
         changes = engine.process_snapshot(_ts(20), [])
         assert changes == []
 
-    def test_rssi_based_room_tracking(self):
-        """Room follows the AP with strongest RSSI, not the first seen."""
+    def test_room_follows_the_ap_that_heard_the_phone_last(self):
+        """Room follows the AP the phone is on, not the first seen: the
+        others only hold stale entries from before it roamed."""
         config = _make_config()
         engine = PresenceEngine(config)
 
-        # Phone visible on three APs simultaneously
+        # Phone on ap-bedroom; ap-living and gordon still list it
         changes = engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "ap-living", -60),
-                _reading("aa:bb:cc:dd:ee:01", "ap-bedroom", -50),
-                _reading("aa:bb:cc:dd:ee:01", "gordon", -70),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -60, 45_000),
+                _reading("aa:bb:cc:dd:ee:01", "ap-bedroom", -50, 200),
+                _reading("aa:bb:cc:dd:ee:01", "gordon", -70, 200_000),
             ],
         )
         assert len(changes) == 1
         assert isinstance(changes[0], HomeState)
-        assert changes[0].room == "bedroom"  # ap-bedroom has strongest RSSI
+        assert changes[0].room == "bedroom"  # ap-bedroom heard it last
 
-        # Next poll: office RSSI improves
+        # Next poll: phone roamed to ap-living; ap-bedroom's entry is stale
         changes = engine.process_snapshot(
             _ts(0.5),
             [
-                _reading("aa:bb:cc:dd:ee:01", "ap-living", -40),
-                _reading("aa:bb:cc:dd:ee:01", "ap-bedroom", -55),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -40, 300),
+                _reading("aa:bb:cc:dd:ee:01", "ap-bedroom", -55, 30_000),
             ],
         )
         assert len(changes) == 1

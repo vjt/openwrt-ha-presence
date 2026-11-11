@@ -32,11 +32,13 @@ _mac_strategy = st.sampled_from(
 )
 _ap_strategy = st.sampled_from(["ap-garden", "ap-living", "ap-bedroom"])
 _rssi_strategy = st.integers(min_value=-95, max_value=-30)
+_inactive_strategy = st.integers(min_value=0, max_value=600_000)
 _reading_strategy = st.builds(
     StationReading,
     mac=_mac_strategy,
     ap=_ap_strategy,
     rssi=_rssi_strategy,
+    inactive_ms=_inactive_strategy,
 )
 _snapshot_strategy = st.lists(_reading_strategy, min_size=0, max_size=8)
 

@@ -75,9 +75,15 @@ PresenceEngine.process_event(now, event)  →  list[StateChange]  → same publi
 - `config.py` — YAML parsed into frozen dataclasses at boundary
 - `engine.py` — pure logic, no I/O, no `datetime.now()` internally;
   `now` injected from caller. State per MAC: `CONNECTED → DEPARTING → AWAY`.
+  A MAC on several APs = a stale entry on the AP it left (hostapd keeps
+  it until its inactivity timeout, RSSI frozen): the reading with the
+  smallest `inactive_ms` represents it, RSSI only breaks ties.
 - `sources/exporters.py` — parallel HTTP scrape of `/metrics`, regex
-  parse of `wifi_station_signal_dbm{mac="..."} <rssi>`, DNS + session
-  pooling, health tracking (only logs on transition healthy↔unreachable)
+  parse of `wifi_station_signal_dbm` + `wifi_station_inactive_milliseconds`
+  paired per label set (signal without inactive = ValueError, node
+  unhealthy; inactive alone = no reading, the exporter skips 0 dBm),
+  DNS + session pooling, health tracking (only logs on transition
+  healthy↔unreachable)
 - `sources/events.py` — aiohttp `POST /event` for AP push events
   (`event_port`); per-node bearer token, constant-time compare; 204
   accepted (tracked or not), 400/403/413 rejected and logged. Engine

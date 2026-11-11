@@ -18,7 +18,10 @@ def test_exit_node_ap_death_produces_away_after_departure_timeout(sample_config)
         t,
         [
             StationReading(
-                mac=Mac("aa:bb:cc:dd:ee:01"), ap=NodeName("ap-garden"), rssi=-55
+                mac=Mac("aa:bb:cc:dd:ee:01"),
+                ap=NodeName("ap-garden"),
+                rssi=-55,
+                inactive_ms=0,
             ),
         ],
     )
@@ -41,7 +44,10 @@ def test_interior_node_ap_death_uses_long_timeout(sample_config):
         t,
         [
             StationReading(
-                mac=Mac("aa:bb:cc:dd:ee:03"), ap=NodeName("ap-living"), rssi=-60
+                mac=Mac("aa:bb:cc:dd:ee:03"),
+                ap=NodeName("ap-living"),
+                rssi=-60,
+                inactive_ms=0,
             ),
         ],
     )
