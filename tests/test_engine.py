@@ -13,8 +13,10 @@ from openwrt_presence.domain import (
 from openwrt_presence.engine import PresenceEngine
 
 
-def _reading(mac: str, ap: str, rssi: int) -> StationReading:
-    return StationReading(mac=Mac(mac), ap=NodeName(ap), rssi=rssi)
+def _reading(mac: str, ap: str, rssi: int, inactive_ms: int = 0) -> StationReading:
+    return StationReading(
+        mac=Mac(mac), ap=NodeName(ap), rssi=rssi, inactive_ms=inactive_ms
+    )
 
 
 def _ts(minutes: float = 0) -> datetime:
@@ -152,18 +154,73 @@ class TestDeparture:
 
 
 class TestRoomSelection:
-    def test_best_rssi_wins(self, sample_config):
+    def test_most_recently_heard_wins_over_stronger(self, sample_config):
+        """Same MAC on two APs = a stale entry on the AP it left, RSSI
+        frozen at its last frame. The AP that heard it last is the one
+        it is associated to."""
         engine = PresenceEngine(sample_config)
         changes = engine.process_snapshot(
             _ts(0),
             [
-                _reading("aa:bb:cc:dd:ee:01", "ap-living", -60),
-                _reading("aa:bb:cc:dd:ee:01", "ap-bedroom", -45),  # stronger
+                _reading("aa:bb:cc:dd:ee:01", "ap-bedroom", -45, inactive_ms=120_000),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -60, inactive_ms=300),
+            ],
+        )
+        assert len(changes) == 1
+        assert isinstance(changes[0], HomeState)
+        assert changes[0].room == "office"  # ap-living's room
+        assert changes[0].node == "ap-living"
+        assert changes[0].rssi == -60
+
+    def test_equal_inactive_time_strongest_rssi_wins(self, sample_config):
+        engine = PresenceEngine(sample_config)
+        changes = engine.process_snapshot(
+            _ts(0),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -60, inactive_ms=500),
+                _reading("aa:bb:cc:dd:ee:01", "ap-bedroom", -45, inactive_ms=500),
             ],
         )
         assert len(changes) == 1
         assert isinstance(changes[0], HomeState)
         assert changes[0].room == "bedroom"  # ap-bedroom's room
+        assert changes[0].rssi == -45
+
+    def test_scrape_only_roam_ignores_stale_entry(self, sample_config):
+        """An AP without push events (e.g. 19.07): the room moves on the
+        first scrape after the roam and stays there while the old AP's
+        entry ages out, however strong its frozen RSSI."""
+        engine = PresenceEngine(sample_config)
+        engine.process_snapshot(
+            _ts(0), [_reading("aa:bb:cc:dd:ee:01", "ap-bedroom", -50, 200)]
+        )
+        changes = engine.process_snapshot(
+            _ts(1),
+            [
+                _reading("aa:bb:cc:dd:ee:01", "ap-bedroom", -50, 40_000),
+                _reading("aa:bb:cc:dd:ee:01", "ap-living", -62, 300),
+            ],
+        )
+        assert len(changes) == 1
+        assert isinstance(changes[0], HomeState)
+        assert changes[0].room == "office"
+        for minute in range(2, 10):
+            assert (
+                engine.process_snapshot(
+                    _ts(minute),
+                    [
+                        _reading(
+                            "aa:bb:cc:dd:ee:01",
+                            "ap-bedroom",
+                            -50,
+                            40_000 + (minute - 1) * 60_000,
+                        ),
+                        _reading("aa:bb:cc:dd:ee:01", "ap-living", -64, 1_000),
+                    ],
+                )
+                == []
+            )
+        assert engine.get_person_state(PersonName("alice")).room == "office"
 
     def test_room_changes_with_rssi(self, sample_config):
         engine = PresenceEngine(sample_config)

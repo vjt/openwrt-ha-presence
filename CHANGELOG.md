@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - ⚡ **AP push events** — optional `POST /event` listener (`event_port`) with per-node bearer tokens (`nodes.<name>.token`). A pushed `assoc` moves the device to that AP's room at once and holds it there for `event_hold` seconds (default 10) against stale scrapes; `disassoc` is log-only, departures stay scrape-driven. Untracked MACs get the same 204 as tracked ones (no oracle). AP-side ucode daemon in `contrib/openwrt/` (ubus subscriber on `hostapd.*`, pushes on `sta-authorized`, async `uclient-fetch` with 2 s timeout). Needs ucode on the AP (OpenWrt 22.03+; 19.07 stays scrape-only). Measured hostapd association → MQTT delivered: 0.1–0.6 s. See `docs/plans/2026-11-01-ap-push-events.md`
 
+### Fixed
+- 👻 **Room flapping on a stale station entry.** After a roam, the AP a phone left keeps its station entry until hostapd's inactivity timeout (~10 min measured), RSSI frozen at the last frame — as strong as the live reading or stronger. Strongest-RSSI picked it whenever it edged ahead: once `event_hold` expired, a tracked phone flipped livingroom↔office every 10–30 s for 9 minutes (measured 2026-11-11), toggling a light automation ~20 times. Per MAC the engine now takes the reading the AP heard most recently (`wifi_station_inactive_milliseconds`, which only grows on the AP the station left); RSSI only breaks ties. Which MACs are visible, presence and departures are unchanged. `StationReading` gains `inactive_ms`; the exporter parser pairs it with the signal per label set. A station's signal without its inactive time marks the node unreachable (the `wifi_stations` collector exports both since at least OpenWrt 19.07); an inactive time without a signal stays no reading, since the collector skips 0 dBm signals
+
 ## [0.6.0] — 2026-04-22
 
 ### Added

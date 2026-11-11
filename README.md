@@ -4,7 +4,7 @@ WiFi-based presence detection for Home Assistant using OpenWrt APs.
 
 Scrapes RSSI metrics (`wifi_station_signal_dbm`) directly from each AP's `/metrics` endpoint and publishes per-person home/away state and room location to Home Assistant via MQTT. No cloud, no Bluetooth beacons, no phone polling, no TSDB — just your existing WiFi infrastructure doing what it already knows: which devices are connected and where.
 
-Room detection uses signal strength — your phone is in whichever room has the strongest RSSI reading. Departure detection uses metric disappearance — if a MAC vanishes from all APs for longer than the departure timeout, the person is away. Exit nodes (like a garden AP) use a short timeout; interior nodes use a long safety-net timeout to ride out phone doze cycles.
+Room detection follows the AP your phone is associated to. The AP it left keeps listing it for minutes with a frozen RSSI, so when several APs report the same phone, the one that heard it most recently wins; signal strength only breaks ties. Departure detection uses metric disappearance — if a MAC vanishes from all APs for longer than the departure timeout, the person is away. Exit nodes (like a garden AP) use a short timeout; interior nodes use a long safety-net timeout to ride out phone doze cycles.
 
 ![Home Assistant room tracking history](docs/home-assistant-screenshot.png)
 
@@ -17,7 +17,7 @@ OpenWrt APs  -->  openwrt-presence  -->  MQTT  -->  Home Assistant
 
 Every ~5 seconds, `openwrt-presence` scrapes the `/metrics` endpoint on each AP for current RSSI readings of tracked MAC addresses. The engine processes each snapshot:
 
-1. **Visible devices** → marked CONNECTED, room set by strongest RSSI
+1. **Visible devices** → marked CONNECTED, room set by the AP that heard the device most recently (`wifi_station_inactive_milliseconds`), strongest RSSI on a tie
 2. **Disappeared devices** → marked DEPARTING, departure timer starts
 3. **Timer expires** → marked AWAY
 4. **Reappears** → timer cancelled, back to CONNECTED
@@ -106,7 +106,7 @@ Scraping alone bounds a room change to one `poll_interval`. With
 `event_port` set, eve also listens for `POST /event` from the APs: a
 station authorizing on an AP moves its owner to that room at once, and
 for `event_hold` seconds (default 10) the scrape cannot undo it. Scraping
-stays the source of truth for departures and for RSSI-based room choice;
+stays the source of truth for departures and for room choice;
 a `disassoc` event is logged and never marks anyone away.
 
 Each pushing AP needs `token` in its `nodes:` entry (≥ 32 chars, unique);
@@ -170,7 +170,7 @@ automation:
 
 ### RSSI metrics exporter
 
-Each AP needs [`prometheus-node-exporter-lua`](https://openwrt.org/docs/guide-user/perf_and_log/statistic.custom#prometheus_metrics) with the `wifi_stations` collector enabled. This exposes `wifi_station_signal_dbm` per associated station.
+Each AP needs [`prometheus-node-exporter-lua`](https://openwrt.org/docs/guide-user/perf_and_log/statistic.custom#prometheus_metrics) with the `wifi_stations` collector enabled. This exposes `wifi_station_signal_dbm` and `wifi_station_inactive_milliseconds` per associated station; eve needs both, and marks a node unreachable when a station's signal comes without its inactive time.
 
 Install on OpenWrt:
 

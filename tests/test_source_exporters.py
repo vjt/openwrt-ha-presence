@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 
+import pytest
 from aiohttp import web
 
 from openwrt_presence.domain import Mac, NodeName
@@ -13,11 +14,14 @@ from openwrt_presence.sources.exporters import ExporterSource
 
 # ── shared fixtures/constants ─────────────────────────────────────────
 SAMPLE_METRICS = """\
-# HELP wifi_station_signal_dbm Signal strength of associated stations
 # TYPE wifi_station_signal_dbm gauge
+# TYPE wifi_station_inactive_milliseconds gauge
 wifi_station_signal_dbm{ifname="phy1-ap0",mac="AA:BB:CC:11:22:01"} -55
+wifi_station_inactive_milliseconds{ifname="phy1-ap0",mac="AA:BB:CC:11:22:01"} 120
 wifi_station_signal_dbm{ifname="phy1-ap0",mac="AA:BB:CC:11:22:04"} -42
+wifi_station_inactive_milliseconds{ifname="phy1-ap0",mac="AA:BB:CC:11:22:04"} 431000
 wifi_station_signal_dbm{ifname="phy0-ap0",mac="AA:BB:CC:11:22:05"} -63
+wifi_station_inactive_milliseconds{ifname="phy0-ap0",mac="AA:BB:CC:11:22:05"} 0
 # HELP node_cpu_seconds_total CPU time
 # TYPE node_cpu_seconds_total counter
 node_cpu_seconds_total{cpu="0",mode="idle"} 123456.78
@@ -84,9 +88,82 @@ class TestMetricsParsing:
     def test_handles_float_rssi(self):
         text = (
             'wifi_station_signal_dbm{ifname="phy1-ap0",mac="AA:BB:CC:DD:EE:01"} -55.7\n'
+            'wifi_station_inactive_milliseconds{ifname="phy1-ap0",'
+            'mac="AA:BB:CC:DD:EE:01"} 10\n'
         )
         readings = ExporterSource._parse_metrics(text, NodeName("ap-living"))
         assert readings[0].rssi == -55
+
+    def test_extracts_inactive_ms(self):
+        readings = ExporterSource._parse_metrics(SAMPLE_METRICS, NodeName("ap-living"))
+        by_mac = {r.mac: r for r in readings}
+        assert by_mac[Mac("aa:bb:cc:11:22:01")].inactive_ms == 120
+        assert by_mac[Mac("aa:bb:cc:11:22:04")].inactive_ms == 431000
+        assert by_mac[Mac("aa:bb:cc:11:22:05")].inactive_ms == 0
+
+    def test_pairs_by_series_not_by_line_order(self):
+        """The exporter prints labels in Lua ``pairs`` order: the two lines
+        of one station need not list them alike, nor come in a fixed order."""
+        text = (
+            'wifi_station_inactive_milliseconds{mac="aa:bb:cc:dd:ee:01",'
+            'ifname="phy1-ap0"} 2500\n'
+            'wifi_station_signal_dbm{ifname="phy1-ap0",mac="aa:bb:cc:dd:ee:01"} -61\n'
+        )
+        readings = ExporterSource._parse_metrics(text, NodeName("ap-living"))
+        assert [(r.rssi, r.inactive_ms) for r in readings] == [(-61, 2500)]
+
+    def test_same_mac_on_two_interfaces_pairs_per_interface(self):
+        text = (
+            'wifi_station_signal_dbm{ifname="phy0-ap0",mac="aa:bb:cc:dd:ee:01"} -70\n'
+            'wifi_station_signal_dbm{ifname="phy1-ap0",mac="aa:bb:cc:dd:ee:01"} -50\n'
+            'wifi_station_inactive_milliseconds{ifname="phy1-ap0",'
+            'mac="aa:bb:cc:dd:ee:01"} 40\n'
+            'wifi_station_inactive_milliseconds{ifname="phy0-ap0",'
+            'mac="aa:bb:cc:dd:ee:01"} 95000\n'
+        )
+        readings = ExporterSource._parse_metrics(text, NodeName("ap-living"))
+        assert sorted((r.rssi, r.inactive_ms) for r in readings) == [
+            (-70, 95000),
+            (-50, 40),
+        ]
+
+    def test_signal_without_inactive_raises(self):
+        text = (
+            'wifi_station_signal_dbm{ifname="phy1-ap0",mac="aa:bb:cc:dd:ee:01"} -55\n'
+        )
+        with pytest.raises(ValueError, match="wifi_station_inactive_milliseconds"):
+            ExporterSource._parse_metrics(text, NodeName("ap-living"))
+
+    def test_malformed_inactive_line_raises(self):
+        text = (
+            'wifi_station_signal_dbm{ifname="phy1-ap0",mac="aa:bb:cc:dd:ee:01"} -55\n'
+            'wifi_station_inactive_milliseconds{ifname="phy1-ap0",'
+            'mac="aa:bb:cc:dd:ee:01"} -5\n'
+        )
+        with pytest.raises(ValueError, match="malformed"):
+            ExporterSource._parse_metrics(text, NodeName("ap-living"))
+
+    def test_duplicate_series_raises(self):
+        line = (
+            'wifi_station_signal_dbm{ifname="phy1-ap0",mac="aa:bb:cc:dd:ee:01"} -55\n'
+        )
+        text = (
+            line + line + 'wifi_station_inactive_milliseconds{ifname="phy1-ap0",'
+            'mac="aa:bb:cc:dd:ee:01"} 10\n'
+        )
+        with pytest.raises(ValueError, match="duplicate"):
+            ExporterSource._parse_metrics(text, NodeName("ap-living"))
+
+    def test_inactive_without_signal_yields_no_reading(self):
+        """wifi_stations.lua prints the signal line only when the driver
+        reports a non-zero signal, the inactive line always: a station
+        without signal is legitimate exporter output, not a broken AP."""
+        text = (
+            'wifi_station_inactive_milliseconds{ifname="phy1-ap0",'
+            'mac="aa:bb:cc:dd:ee:01"} 10\n'
+        )
+        readings = ExporterSource._parse_metrics(text, NodeName("ap-living"))
+        assert readings == []
 
     def test_filters_to_tracked_macs(self):
         source = _make_source(tracked_macs={"aa:bb:cc:11:22:01"})
@@ -101,7 +178,9 @@ class TestMetricsParsing:
 _METRICS_SAMPLE_SHORT = """# HELP wifi_station_signal_dbm
 # TYPE wifi_station_signal_dbm gauge
 wifi_station_signal_dbm{mac="aa:bb:cc:dd:ee:01"} -55
+wifi_station_inactive_milliseconds{mac="aa:bb:cc:dd:ee:01"} 30
 wifi_station_signal_dbm{mac="aa:bb:cc:dd:ee:02"} -70
+wifi_station_inactive_milliseconds{mac="aa:bb:cc:dd:ee:02"} 900
 """
 
 
@@ -332,7 +411,9 @@ class TestLargeChunkedBody:
             await resp.write(filler)
             await resp.write(
                 b'wifi_station_signal_dbm{ifname="phy1-ap0",'
-                b'mac="AA:BB:CC:DD:EE:01"} -55\n',
+                b'mac="AA:BB:CC:DD:EE:01"} -55\n'
+                b'wifi_station_inactive_milliseconds{ifname="phy1-ap0",'
+                b'mac="AA:BB:CC:DD:EE:01"} 70\n',
             )
             await resp.write_eof()
             return resp
@@ -392,6 +473,34 @@ class TestMalformedMetrics:
             and entry.get("node") == "ap-broken"
             for entry in logs
         )
+
+    async def test_missing_inactive_marks_node_unhealthy(self, aiohttp_server):
+        """Every station's signal must come with its inactive time: an AP
+        without the metric cannot tell a stale entry from a live one."""
+
+        async def _handler(request: web.Request) -> web.Response:
+            return web.Response(
+                text='wifi_station_signal_dbm{mac="aa:bb:cc:dd:ee:01"} -55\n',
+                content_type="text/plain",
+            )
+
+        app = web.Application()
+        app.router.add_get("/metrics", _handler)
+        server = await aiohttp_server(app)
+        url = f"http://{server.host}:{server.port}/metrics"
+
+        source = ExporterSource(
+            node_urls={NodeName("ap-old"): url},
+            tracked_macs={Mac("aa:bb:cc:dd:ee:01")},
+            dns_cache_ttl=60,
+        )
+        try:
+            readings = await source.query()
+        finally:
+            await source.close()
+
+        assert readings == []
+        assert source._node_healthy[NodeName("ap-old")] is False
 
 
 class TestAllNodesUnhealthy:

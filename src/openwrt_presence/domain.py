@@ -25,11 +25,12 @@ Room = NewType("Room", str)
 
 @dataclass(frozen=True)
 class StationReading:
-    """A single RSSI measurement from a Prometheus-compatible TSDB."""
+    """One AP's view of one associated station, from its ``/metrics``."""
 
     mac: Mac  # lowercase, colon-separated
     ap: NodeName  # AP hostname (instance label)
     rssi: int  # signal strength in dBm
+    inactive_ms: int  # since the AP last heard the station; grows once it left
 
 
 class ApEventKind(Enum):

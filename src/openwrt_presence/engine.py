@@ -29,6 +29,11 @@ class DeviceState(Enum):
     AWAY = "away"
 
 
+def _recency(reading: StationReading) -> tuple[int, int]:
+    """Rank key: most recently heard first, strongest RSSI on a tie."""
+    return (-reading.inactive_ms, reading.rssi)
+
+
 @dataclass
 class _DeviceTracker:
     """Internal per-device state tracker."""
@@ -67,17 +72,25 @@ class PresenceEngine:
         """Process a complete station snapshot and return person-level changes.
 
         For each tracked MAC:
-        - If visible in the snapshot → CONNECTED, update node/rssi.
+        - If visible in the snapshot → CONNECTED, update node/rssi from the
+          reading with the smallest ``inactive_ms`` (ties: strongest RSSI).
         - If not visible and was CONNECTED → DEPARTING, set departure deadline.
         - If DEPARTING and deadline passed → AWAY.
+
+        Returns the person-level changes; ``[]`` when nothing changed.
+        Raises nothing.
         """
-        # Build best-RSSI-per-MAC lookup from readings (tracked MACs only)
+        # A station is associated to one AP at a time. The same MAC on
+        # several APs is a stale entry on the AP it left, kept until that
+        # hostapd's inactivity timeout (minutes) with the RSSI of its last
+        # frame — as strong as the live one or stronger. Its inactive time
+        # only grows; the AP the station is on heard it last.
         tracked = [r for r in readings if self._config.mac_to_person(r.mac) is not None]
         visible: dict[Mac, StationReading] = {}
         for r in tracked:
             mac = r.mac
-            if mac not in visible or r.rssi > visible[mac].rssi:
-                visible[mac] = StationReading(mac=mac, ap=r.ap, rssi=r.rssi)
+            if mac not in visible or _recency(r) > _recency(visible[mac]):
+                visible[mac] = r
         self._apply_holds(now, tracked, visible)
 
         # Update visible MACs → CONNECTED
@@ -212,7 +225,12 @@ class PresenceEngine:
                 continue
             on_node = [r.rssi for r in tracked if r.mac == mac and r.ap == tracker.node]
             rssi = max(on_node) if on_node else tracker.rssi
-            visible[mac] = StationReading(mac=mac, ap=tracker.node, rssi=rssi)
+            # Synthetic: the hold, not the scrape, puts the device here, and
+            # the readings are already ranked. 0 = the assoc event is the
+            # freshest evidence there is.
+            visible[mac] = StationReading(
+                mac=mac, ap=tracker.node, rssi=rssi, inactive_ms=0
+            )
 
     def _best_representative(
         self, person: PersonName

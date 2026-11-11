@@ -49,10 +49,16 @@ async def test_startup_publishes_state_for_every_person(sample_config):
     source.schedule(
         [
             StationReading(
-                mac=Mac("aa:bb:cc:dd:ee:01"), ap=NodeName("ap-garden"), rssi=-55
+                mac=Mac("aa:bb:cc:dd:ee:01"),
+                ap=NodeName("ap-garden"),
+                rssi=-55,
+                inactive_ms=0,
             ),
             StationReading(
-                mac=Mac("aa:bb:cc:dd:ee:03"), ap=NodeName("ap-living"), rssi=-65
+                mac=Mac("aa:bb:cc:dd:ee:03"),
+                ap=NodeName("ap-living"),
+                rssi=-65,
+                inactive_ms=0,
             ),
         ]
     )
@@ -113,7 +119,10 @@ async def test_reconnect_triggers_republish(sample_config):
     source.schedule(
         [
             StationReading(
-                mac=Mac("aa:bb:cc:dd:ee:01"), ap=NodeName("ap-garden"), rssi=-55
+                mac=Mac("aa:bb:cc:dd:ee:01"),
+                ap=NodeName("ap-garden"),
+                rssi=-55,
+                inactive_ms=0,
             ),
         ]
     )
@@ -154,6 +163,7 @@ async def test_state_only_published_after_on_connect(sample_config):
                 mac=Mac("aa:bb:cc:dd:ee:01"),
                 ap=NodeName("ap-garden"),
                 rssi=-55,
+                inactive_ms=0,
             ),
         ]
     )
